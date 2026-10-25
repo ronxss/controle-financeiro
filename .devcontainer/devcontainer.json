@@ -1,0 +1,18 @@
+{
+  "name": "Controle Financeiro",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/dotnet:2": { "version": "10.0" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "containerEnv": {
+    "ConnectionStrings__Default": "Server=localhost,1433;Database=ControleFinanceiro;User Id=sa;Password=Controle@Fin2026;TrustServerCertificate=True",
+    "AllowedHosts": "*"
+  },
+  "postStartCommand": "docker compose up -d",
+  "forwardPorts": [5080],
+  "portsAttributes": {
+    "5080": { "label": "Controle Financeiro", "onAutoForward": "openBrowser" }
+  }
+}
