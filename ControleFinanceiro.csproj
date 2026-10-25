@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ControleFinanceiro</RootNamespace>
+    <UserSecretsId>controle-financeiro-local</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- O front-end React fica em ClientApp e não faz parte da compilação C# -->
+  <ItemGroup>
+    <Compile Remove="ClientApp\**" />
+    <Content Remove="ClientApp\**" />
+    <EmbeddedResource Remove="ClientApp\**" />
+    <None Remove="ClientApp\**" />
+  </ItemGroup>
+
+  <!-- Na primeira execução (wwwroot/index.html ausente) compila o React automaticamente -->
+  <Target Name="CompilarClientApp" BeforeTargets="Build" Condition="'$(SkipClientBuild)' != 'true' And !Exists('$(MSBuildProjectDirectory)/wwwroot/index.html')">
+    <Message Importance="high" Text="Instalando dependências e compilando o front-end React (primeira execução)..." />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/ClientApp" Command="npm install" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)/ClientApp" Command="npm run build" />
+  </Target>
+
+</Project>
