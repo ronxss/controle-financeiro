@@ -1,14 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, IconButton, InputAdornment, Stack, Tab, Tabs, TextField, Typography,
+  Alert, Box, Button, Card, CardContent, Divider, IconButton, InputAdornment, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { api } from '../api.js';
+import GoogleButton from '../components/GoogleButton.jsx';
 
 export default function Login() {
-  const { entrar, registrar } = useAuth();
+  const { entrar, registrar, entrarComGoogle } = useAuth();
+  const [googleClientId, setGoogleClientId] = useState(null);
   const [aba, setAba] = useState(0); // 0 = entrar, 1 = criar conta
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
@@ -18,6 +21,20 @@ export default function Login() {
   const [enviando, setEnviando] = useState(false);
 
   const novo = aba === 1;
+
+  // O servidor informa o Client ID do Google; se não estiver configurado, o botão simplesmente não aparece.
+  useEffect(() => {
+    api.get('/api/auth/config').then((c) => setGoogleClientId(c?.googleClientId || null)).catch(() => {});
+  }, []);
+
+  const aoReceberGoogle = async (credential) => {
+    setErro('');
+    try {
+      await entrarComGoogle(credential);
+    } catch (err) {
+      setErro(err.message);
+    }
+  };
 
   const enviar = async (e) => {
     e.preventDefault();
@@ -79,6 +96,13 @@ export default function Login() {
               </Button>
             </Stack>
           </Box>
+
+          {googleClientId && (
+            <>
+              <Divider sx={{ my: 2.5 }}>ou</Divider>
+              <GoogleButton clientId={googleClientId} onCredential={aoReceberGoogle} onErro={setErro} />
+            </>
+          )}
         </CardContent>
       </Card>
     </Box>

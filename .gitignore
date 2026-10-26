@@ -1,0 +1,14 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Front-end
+ClientApp/node_modules/
+wwwroot/
+
+# Segredos e configurações locais — NUNCA versionar
+.env
+appsettings.*.local.json
+secrets.json

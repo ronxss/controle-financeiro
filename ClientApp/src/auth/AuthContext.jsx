@@ -27,12 +27,16 @@ export function AuthProvider({ children }) {
     setUsuario(await api.post('/api/auth/registrar', { nome, email, senha }));
   }, []);
 
+  const entrarComGoogle = useCallback(async (credential) => {
+    setUsuario(await api.post('/api/auth/google', { credential }));
+  }, []);
+
   const sair = useCallback(async () => {
     try { await api.post('/api/auth/sair'); } finally { setUsuario(null); }
   }, []);
 
   return (
-    <AuthContext.Provider value={{ usuario, carregando, entrar, registrar, sair }}>
+    <AuthContext.Provider value={{ usuario, carregando, entrar, registrar, entrarComGoogle, sair }}>
       {children}
     </AuthContext.Provider>
   );
