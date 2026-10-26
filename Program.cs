@@ -3,11 +3,26 @@ using System.Threading.RateLimiting;
 using ControleFinanceiro.Data;
 using ControleFinanceiro.Models;
 using ControleFinanceiro.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Não revela o servidor e limita o tamanho das requisições (a API só recebe JSON pequeno).
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.AddServerHeader = false;
+    o.Limits.MaxRequestBodySize = 1_000_000; // ~1 MB
+});
+
+// Chaves que protegem o cookie de login. Em hospedagem com disco efêmero (containers), aponte
+// DataProtection:Path para um volume persistente; sem isso, todos são deslogados a cada reinício/deploy.
+var chavesPath = builder.Configuration["DataProtection:Path"];
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("ControleFinanceiro");
+if (!string.IsNullOrWhiteSpace(chavesPath))
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(chavesPath));
 
 // ---------- Banco de dados (SQL Server) ----------
 var connectionString = builder.Configuration.GetConnectionString("Default")
@@ -41,13 +56,18 @@ builder.Services.ConfigureApplicationCookie(o =>
     o.Cookie.Name = "cf.auth";
     o.Cookie.HttpOnly = true;                              // JavaScript não lê o cookie (mitiga XSS)
     o.Cookie.SameSite = SameSiteMode.Strict;               // não é enviado em requisições de outros sites (mitiga CSRF)
-    o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // Secure quando acessado via HTTPS
+    o.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+        ? CookieSecurePolicy.SameAsRequest   // permite http://localhost no desenvolvimento
+        : CookieSecurePolicy.Always;         // em produção o cookie só trafega por HTTPS
     o.ExpireTimeSpan = TimeSpan.FromHours(8);
     o.SlidingExpiration = true;
     // API: devolve 401/403 em vez de redirecionar para uma página de login
     o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
     o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
 });
+
+// Revalida o usuário a cada minuto (padrão: 30 min): troca de senha / remoção de senha derruba sessões antigas rápido.
+builder.Services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.FromMinutes(1));
 
 // ---------- Limite de requisições nos endpoints de autenticação ----------
 builder.Services.AddRateLimiter(o =>
@@ -80,6 +100,17 @@ if (!app.Environment.IsDevelopment())
 }
 
 // ---------- Cabeçalhos de segurança ----------
+// Com o login Google ativo, liberamos somente os endereços do Google Identity Services.
+var googleAtivo = !string.IsNullOrWhiteSpace(app.Configuration["Google:ClientId"]);
+var csp =
+    "default-src 'self'; " +
+    (googleAtivo ? "script-src 'self' https://accounts.google.com/gsi/client; " : "script-src 'self'; ") +
+    (googleAtivo ? "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; " : "style-src 'self' 'unsafe-inline'; ") +
+    "img-src 'self' data:; font-src 'self' data:; " +
+    (googleAtivo ? "connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; "
+                 : "connect-src 'self'; ") +
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
 app.Use(async (ctx, next) =>
 {
     var h = ctx.Response.Headers;
@@ -87,10 +118,13 @@ app.Use(async (ctx, next) =>
     h["X-Frame-Options"] = "DENY";
     h["Referrer-Policy"] = "no-referrer";
     h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
-    h["Content-Security-Policy"] =
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-        "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
-        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    h["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"; // compatível com o popup do Google
+    h["Content-Security-Policy"] = csp;
+
+    // Dados financeiros nunca devem ficar em cache do navegador/proxy.
+    if (ctx.Request.Path.StartsWithSegments("/api"))
+        h["Cache-Control"] = "no-store";
+
     await next();
 });
 

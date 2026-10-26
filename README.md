@@ -4,7 +4,7 @@ Sistema web monolítico para controle de receitas e despesas, baseado na planilh
 
 - **Back-end:** C# / ASP.NET Core (.NET 10) + Entity Framework Core + **SQL Server**
 - **Front-end:** React + Material UI (Vite), servido pelo próprio ASP.NET Core (um único processo)
-- **Segurança:** ASP.NET Core Identity, cookie HttpOnly/SameSite=Strict, bloqueio por tentativas, rate limiting, CSP
+- **Segurança:** ASP.NET Core Identity, login com Google, cookie HttpOnly/SameSite=Strict, bloqueio por tentativas, rate limiting, CSP
 
 ## Pré-requisitos
 
@@ -25,6 +25,19 @@ cria o banco `ControleFinanceiro` e abre em **https://localhost:7080** (ou http:
 Se o navegador reclamar do certificado: `dotnet dev-certs https --trust`.
 
 Crie sua conta na aba **Criar conta**. Categorias e contas da planilha são criadas automaticamente.
+
+### Login com Google (opcional)
+
+1. No [Google Cloud Console](https://console.cloud.google.com/) → **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth** → tipo **Aplicativo da Web**.
+2. Em **Origens JavaScript autorizadas** adicione: `http://localhost:5080`, `https://localhost:7080`, `http://localhost:5173` e, em produção, `https://seu-dominio`. (Não é preciso URI de redirecionamento.)
+3. Configure o Client ID (não é segredo, mas fica fora do Git):
+
+```bash
+dotnet user-secrets set "Google:ClientId" "123456-abc.apps.googleusercontent.com"
+```
+
+Em produção use a variável de ambiente `Google__ClientId`. Sem Client ID o botão "Continuar com o Google" simplesmente não aparece.
+O servidor valida o token do Google (assinatura, validade, audiência e e-mail verificado) e então cria a mesma sessão por cookie do login por senha.
 
 ### Banco de dados
 
@@ -71,6 +84,11 @@ Cada usuário tem seus próprios dados, totalmente isolados.
 - Proteção CSRF: cabeçalho `X-Requested-With` obrigatório em POST/PUT/PATCH/DELETE
 - Todas as consultas filtram pelo usuário logado; categoria/conta informadas são validadas contra o dono
 - Cabeçalhos: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS (fora de Development)
+- Login com Google: ID token validado no servidor (assinatura, audiência = nosso Client ID, `email_verified`); vínculo pelo `sub` do Google, não pelo e-mail
+- Proteção contra *pre-hijacking*: se existir conta por senha com e-mail **não confirmado**, o primeiro login Google remove a senha antiga e derruba as sessões
+- Cookie `Secure` obrigatório fora de Development; sessões revalidadas a cada 1 min (troca/remoção de senha as invalida rápido)
+- Respostas da API com `Cache-Control: no-store`; corpo de requisição limitado a ~1 MB; cabeçalho `Server` removido
+- Segredos fora do Git (`.gitignore`, `.env`, user-secrets); banco do Docker local só escuta em 127.0.0.1
 - Validação no servidor (DataAnnotations) e constraint `Valor > 0` no banco; EF Core parametriza todas as consultas
 
 ## Estrutura
@@ -83,6 +101,10 @@ Services/             dados iniciais (Listas), mensagens do Identity em pt-BR
 ClientApp/            React + MUI (src/pages, src/components, src/auth)
 wwwroot/              build do React (gerado)
 ```
+
+## Publicar online
+
+Veja o guia completo em **[PUBLICAR.md](PUBLICAR.md)** (Google Cloud, Docker, VPS com HTTPS automático, Azure e checklist de segurança).
 
 ## Observações
 

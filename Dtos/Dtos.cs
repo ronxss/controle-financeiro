@@ -34,7 +34,14 @@ public class AlterarSenhaRequest
     public string NovaSenha { get; set; } = "";
 }
 
-public record UsuarioDto(string Nome, string Email);
+public class GoogleLoginRequest
+{
+    [Required(ErrorMessage = "Credencial do Google ausente."), StringLength(4096)]
+    public string Credential { get; set; } = "";
+}
+
+/// <summary>TemSenha = false para contas criadas apenas via Google (não há senha para alterar).</summary>
+public record UsuarioDto(string Nome, string Email, bool TemSenha);
 
 // ---------- Lançamentos ----------
 public class LancamentoRequest

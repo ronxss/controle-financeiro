@@ -1,0 +1,46 @@
+# Produção em uma VPS com Docker: app + SQL Server + Caddy (HTTPS automático via Let's Encrypt).
+# Uso: copie .env.example para .env, preencha e rode:  docker compose -f docker-compose.prod.yml up -d --build
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?defina no .env}"
+    volumes:
+      - sqldata:/var/opt/mssql
+    # Sem "ports": o banco só é enxergado pelos outros containers, nunca pela internet.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - sqlserver
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=ControleFinanceiro;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True"
+      Google__ClientId: "${GOOGLE_CLIENT_ID:?defina no .env}"
+      AllowedHosts: "${DOMINIO:?defina no .env}"
+    volumes:
+      - keys:/keys
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: "${DOMINIO}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  sqldata:
+  keys:
+  caddydata:
+  caddyconfig:

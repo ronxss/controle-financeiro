@@ -75,9 +75,11 @@ export default function Layout({ children }) {
               <Typography variant="body2" color="text.secondary">{usuario.email}</Typography>
             </Box>
             <Divider />
-            <MenuItem onClick={() => { setAncora(null); setSenhaAberta(true); }}>
-              <ListItemIcon><LockResetIcon fontSize="small" /></ListItemIcon>Alterar senha
-            </MenuItem>
+            {usuario.temSenha && (
+              <MenuItem onClick={() => { setAncora(null); setSenhaAberta(true); }}>
+                <ListItemIcon><LockResetIcon fontSize="small" /></ListItemIcon>Alterar senha
+              </MenuItem>
+            )}
             <MenuItem onClick={() => { setAncora(null); sair(); }}>
               <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Sair
             </MenuItem>

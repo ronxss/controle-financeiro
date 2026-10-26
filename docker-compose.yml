@@ -1,14 +1,14 @@
-# SQL Server local em container (alternativa ao LocalDB / SQL Express).
-# Uso: docker compose up -d
+# SQL Server local em container — SOMENTE para desenvolvimento.
+# Uso: docker compose up -d   (senha opcional via variável MSSQL_SA_PASSWORD)
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: controle-financeiro-sql
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Controle@Fin2026"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Controle@Fin2026}"
     ports:
-      - "1433:1433"
+      - "127.0.0.1:1433:1433"   # só acessível pela própria máquina, não pela rede
     volumes:
       - sqldata:/var/opt/mssql
 volumes:
