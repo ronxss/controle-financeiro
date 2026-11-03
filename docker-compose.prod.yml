@@ -23,6 +23,11 @@ services:
       AllowedHosts: "${DOMINIO:?defina no .env}"
     volumes:
       - keys:/keys
+    # Endurecimento do container: o app roda como usuário comum na porta 8080 e não precisa de privilégios.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   caddy:
     image: caddy:2

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# O token do workflow só lê o repositório (privilégio mínimo).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Usa o package-lock.json quando existir (build reprodutível); sem ele, cai no npm install.
+      # O audit olha só as dependências de runtime (as de desenvolvimento não vão para produção).
+      - name: Front-end (instala, audita e compila)
+        working-directory: ClientApp
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-fund; else npm install --no-fund; fi
+          npm audit --omit=dev --audit-level=high
+          npm run build
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # SkipClientBuild: o front-end já foi compilado no passo anterior.
+      - name: Back-end (restaura e compila)
+        run: |
+          dotnet restore
+          dotnet build -c Release --no-restore -p:SkipClientBuild=true
+
+      # "dotnet list package --vulnerable" não falha sozinho; o grep transforma o aviso em erro.
+      - name: Vulnerabilidades em pacotes NuGet
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerabilidades.txt
+          ! grep -q "has the following vulnerable packages" vulnerabilidades.txt

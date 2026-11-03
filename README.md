@@ -11,7 +11,7 @@ Sistema web monolítico para controle de receitas e despesas, baseado na planilh
 | Item | Observação |
 |---|---|
 | .NET SDK 10 | `dotnet --version` (para .NET 8, veja "Usar outra versão do .NET") |
-| Node.js 20+ | usado para compilar o front-end |
+| Node.js 22+ | usado para compilar o front-end (o Node 20 saiu de suporte em abril/2026; Docker e Codespaces usam o 24) |
 | SQL Server | LocalDB (Windows), SQL Server Express, ou Docker (`docker compose up -d`) |
 
 ## Como executar
@@ -119,5 +119,5 @@ Para .NET 8, altere `TargetFramework` para `net8.0` e as versões dos pacotes `1
 
 ## GitHub Codespaces
 
-O projeto inclui `.devcontainer/` (instala .NET 10, Node 20 e Docker, e sobe o SQL Server sozinho).
+O projeto inclui `.devcontainer/` (instala .NET 10, Node 24 e Docker, e sobe o SQL Server sozinho).
 Crie o codespace e, no terminal, execute: `dotnet run --urls http://localhost:5080`
