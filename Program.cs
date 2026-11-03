@@ -73,8 +73,12 @@ builder.Services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInter
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // Um limite por IP E por endpoint: quem divide o mesmo IP (empresa, faculdade) não esgota o limite do login
+    // ao criar conta, por exemplo. A chave usa o nome do endpoint resolvido pelo roteamento, e NÃO o caminho da
+    // URL: o roteamento ignora maiúsculas/minúsculas e barra final, então variar a URL criaria um balde novo
+    // a cada tentativa e anularia o limite.
     o.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(
-        ctx.Connection.RemoteIpAddress?.ToString() ?? "local",
+        $"{ctx.Connection.RemoteIpAddress?.ToString() ?? "local"}|{ctx.GetEndpoint()?.DisplayName ?? "?"}",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
