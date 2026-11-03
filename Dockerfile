@@ -1,5 +1,5 @@
 # ---- 1) Front-end (React/Vite) ----
-FROM node:24-alpine AS front
+FROM node:26-alpine AS front
 WORKDIR /src/ClientApp
 COPY ClientApp/package*.json ./
 # Com package-lock.json versionado o build é reprodutível (npm ci); sem ele, cai no npm install.
