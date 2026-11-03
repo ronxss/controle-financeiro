@@ -1,8 +1,9 @@
 # ---- 1) Front-end (React/Vite) ----
-FROM node:20-alpine AS front
+FROM node:24-alpine AS front
 WORKDIR /src/ClientApp
 COPY ClientApp/package*.json ./
-RUN npm install --no-audit --no-fund
+# Com package-lock.json versionado o build é reprodutível (npm ci); sem ele, cai no npm install.
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 COPY ClientApp/ ./
 RUN npm run build            # gera /src/wwwroot (outDir ../wwwroot)
 
