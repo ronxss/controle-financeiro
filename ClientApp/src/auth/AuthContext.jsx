@@ -1,14 +1,24 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api } from '../api.js';
+import { MODO_LOCAL } from '../modo.js';
+import { solicitarPersistencia } from '../local/armazenamento.js';
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
+// No modo local não há conta nem login: os dados pertencem a quem tem o aparelho.
+const USUARIO_LOCAL = { nome: 'Meus dados', email: 'Salvos neste aparelho', temSenha: false };
+
 export function AuthProvider({ children }) {
-  const [usuario, setUsuario] = useState(null);
-  const [carregando, setCarregando] = useState(true);
+  const [usuario, setUsuario] = useState(MODO_LOCAL ? USUARIO_LOCAL : null);
+  const [carregando, setCarregando] = useState(!MODO_LOCAL);
 
   useEffect(() => {
+    if (MODO_LOCAL) {
+      solicitarPersistencia(); // pede ao navegador para não apagar os dados sozinho
+      return undefined;
+    }
+
     api.get('/api/auth/eu')
       .then(setUsuario)
       .catch(() => setUsuario(null))

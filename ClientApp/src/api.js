@@ -1,6 +1,10 @@
 // Cliente HTTP. O cookie de sessão (HttpOnly) é enviado automaticamente;
 // o cabeçalho X-Requested-With é exigido pelo servidor em requisições que alteram dados (proteção CSRF).
 
+import { MODO_LOCAL } from './modo.js';
+import { requestLocal } from './local/localApi.js';
+import { ErroLocal } from './local/engine.js';
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -21,6 +25,16 @@ function extrairMensagem(data, status) {
 }
 
 async function request(method, url, body) {
+  // Modo local (PWA/APK): as mesmas rotas são atendidas dentro do aparelho, sem servidor.
+  if (MODO_LOCAL) {
+    try {
+      // O ida e volta por JSON imita o que acontece numa requisição de verdade (e evita compartilhar objetos).
+      return await requestLocal(method, url, body === undefined ? undefined : JSON.parse(JSON.stringify(body)));
+    } catch (e) {
+      throw e instanceof ErroLocal ? new ApiError(e.message, e.status) : e;
+    }
+  }
+
   let res;
   try {
     res = await fetch(url, {

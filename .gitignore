@@ -7,6 +7,8 @@ obj/
 # Front-end
 ClientApp/node_modules/
 wwwroot/
+ClientApp/dist-local/
+ClientApp/android/
 
 # Segredos e configurações locais — NUNCA versionar
 .env

@@ -17,6 +17,8 @@ updates:
         patterns: ["vite", "@vitejs/*"]
       react:
         patterns: ["react", "react-dom", "react-router-dom"]
+      capacitor:
+        patterns: ["@capacitor/*"]
 
   - package-ecosystem: docker
     directory: "/"
