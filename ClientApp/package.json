@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test \"src/**/*.test.js\"",
+    "dev:mobile": "vite --mode mobile",
+    "build:mobile": "vite build --mode mobile",
+    "preview:mobile": "vite preview --mode mobile --outDir dist-local"
   },
   "dependencies": {
     "@emotion/react": "^11.13.0",
@@ -19,6 +23,9 @@
     "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
     "@vitejs/plugin-react": "^4.7.0",
     "vite": "^5.4.0"
   }

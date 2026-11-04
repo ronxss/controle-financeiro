@@ -1,0 +1,67 @@
+name: APK Android
+
+# Gera o APK (instalável no Android). Rode em Actions -> "APK Android" -> Run workflow,
+# ou crie uma tag "v1.0.0" para também publicar o APK em Releases.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # só para anexar o APK à Release quando há tag
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Compila o front-end (modo mobile)
+        working-directory: ClientApp
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-fund; else npm install --no-fund; fi
+          npm test
+          npm run build:mobile
+
+      # O projeto Android é gerado aqui (não fica no repositório).
+      - name: Gera o projeto Android
+        working-directory: ClientApp
+        run: npx cap add android
+
+      - name: Ícones do app
+        working-directory: ClientApp
+        continue-on-error: true
+        run: |
+          pip install --quiet pillow
+          python3 scripts/gerar-icones.py android android/app/src/main/res
+
+      - name: Copia o app para o projeto Android
+        working-directory: ClientApp
+        run: npx cap sync android
+
+      - name: Compila o APK
+        working-directory: ClientApp/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: controle-financeiro-apk
+          path: ClientApp/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publica em Releases (só com tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp ClientApp/android/app/build/outputs/apk/debug/app-debug.apk controle-financeiro.apk
+          gh release create "${{ github.ref_name }}" controle-financeiro.apk --title "${{ github.ref_name }}" --notes "APK Android (assinado com chave de debug). Dados ficam só no aparelho." --repo "${{ github.repository }}"

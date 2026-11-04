@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar, Avatar, BottomNavigation, BottomNavigationAction, Box, Divider, Drawer, IconButton, List,
-  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Toolbar, Tooltip, Typography,
+  ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Snackbar, Toolbar, Tooltip, Typography,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -14,10 +14,15 @@ import SavingsIcon from '@mui/icons-material/Savings';
 import TuneIcon from '@mui/icons-material/Tune';
 import LogoutIcon from '@mui/icons-material/Logout';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useMes } from '../MesContext.jsx';
 import { mesAtual, moverMes, rotuloMes } from '../utils/format.js';
 import SenhaDialog from './SenhaDialog.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
+import { MODO_LOCAL } from '../modo.js';
+import { conferirBackup, exportarBackup, importarBackup } from '../local/backup.js';
 
 const LARGURA = 220;
 const ITENS = [
@@ -36,6 +41,45 @@ export default function Layout({ children }) {
   const { mes, setMes } = useMes();
   const [ancora, setAncora] = useState(null);
   const [senhaAberta, setSenhaAberta] = useState(false);
+
+  // Backup (só no modo local, onde os dados existem apenas no aparelho).
+  const [aviso, setAviso] = useState('');
+  const [backupPendente, setBackupPendente] = useState(null); // texto do arquivo, aguardando confirmação
+  const seletorArquivo = useRef(null);
+
+  const aoExportar = async () => {
+    setAncora(null);
+    try {
+      const r = await exportarBackup();
+      if (r === 'baixado') setAviso('Backup salvo. Confira a pasta Downloads.');
+      else if (r === 'compartilhado') setAviso('Backup pronto. Guarde o arquivo em um lugar seguro.');
+    } catch (e) {
+      setAviso(e.message || 'Não foi possível gerar o backup.');
+    }
+  };
+
+  const aoEscolherArquivo = async (e) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = ''; // permite escolher o mesmo arquivo outra vez
+    if (!arquivo) return;
+    try {
+      const texto = await arquivo.text();
+      conferirBackup(texto); // valida antes de perguntar
+      setBackupPendente(texto);
+    } catch (err) {
+      setAviso(err.message || 'Não foi possível ler o arquivo.');
+    }
+  };
+
+  const confirmarImportacao = async () => {
+    try {
+      await importarBackup(backupPendente);
+      window.location.reload(); // recarrega as telas com os dados restaurados
+    } catch (err) {
+      setBackupPendente(null);
+      setAviso(err.message || 'Não foi possível importar o backup.');
+    }
+  };
 
   const atual = ITENS.findIndex((i) => i.caminho === pathname);
 
@@ -80,9 +124,21 @@ export default function Layout({ children }) {
                 <ListItemIcon><LockResetIcon fontSize="small" /></ListItemIcon>Alterar senha
               </MenuItem>
             )}
-            <MenuItem onClick={() => { setAncora(null); sair(); }}>
-              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Sair
-            </MenuItem>
+            {MODO_LOCAL && (
+              <MenuItem onClick={aoExportar}>
+                <ListItemIcon><FileDownloadIcon fontSize="small" /></ListItemIcon>Exportar backup
+              </MenuItem>
+            )}
+            {MODO_LOCAL && (
+              <MenuItem onClick={() => { setAncora(null); seletorArquivo.current?.click(); }}>
+                <ListItemIcon><FileUploadIcon fontSize="small" /></ListItemIcon>Importar backup
+              </MenuItem>
+            )}
+            {!MODO_LOCAL && (
+              <MenuItem onClick={() => { setAncora(null); sair(); }}>
+                <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Sair
+              </MenuItem>
+            )}
           </Menu>
         </Toolbar>
       </AppBar>
@@ -125,6 +181,16 @@ export default function Layout({ children }) {
       )}
 
       <SenhaDialog open={senhaAberta} onClose={() => setSenhaAberta(false)} />
+
+      {MODO_LOCAL && (
+        <input ref={seletorArquivo} type="file" accept="application/json,.json" hidden onChange={aoEscolherArquivo} />
+      )}
+      <ConfirmDialog
+        open={backupPendente !== null} titulo="Importar backup?" rotuloConfirmar="Substituir dados"
+        texto="Todos os dados atuais deste aparelho serão substituídos pelos do arquivo. Se quiser guardá-los, exporte um backup antes."
+        onConfirmar={confirmarImportacao} onCancelar={() => setBackupPendente(null)}
+      />
+      <Snackbar open={Boolean(aviso)} autoHideDuration={4000} onClose={() => setAviso('')} message={aviso} />
     </Box>
   );
 }
