@@ -1,9 +1,15 @@
 name: APK Android
 
-# Gera o APK (instalável no Android). Rode em Actions -> "APK Android" -> Run workflow,
-# ou crie uma tag "v1.0.0" para também publicar o APK em Releases.
+# Gera o APK (instalável no Android). Rode em Actions -> "APK Android" -> Run workflow.
+# Para publicar o APK em Releases (link direto para o .apk), preencha "versao" (ex.: v1.0.0)
+# ou crie uma tag "v1.0.0".
 on:
   workflow_dispatch:
+    inputs:
+      versao:
+        description: 'Versão para publicar em Releases (ex.: v1.0.0). Vazio = só gera o artefato.'
+        required: false
+        default: ''
   push:
     tags: ['v*']
 
@@ -15,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write # só para anexar o APK à Release quando há tag
+      contents: write # só para criar a Release quando há versão/tag
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -58,10 +64,11 @@ jobs:
           name: controle-financeiro-apk
           path: ClientApp/android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Publica em Releases (só com tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publica em Releases (com tag ou versão informada)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.versao != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSAO: ${{ inputs.versao || github.ref_name }}
         run: |
           cp ClientApp/android/app/build/outputs/apk/debug/app-debug.apk controle-financeiro.apk
-          gh release create "${{ github.ref_name }}" controle-financeiro.apk --title "${{ github.ref_name }}" --notes "APK Android (assinado com chave de debug). Dados ficam só no aparelho." --repo "${{ github.repository }}"
+          gh release create "$VERSAO" controle-financeiro.apk --target "$GITHUB_SHA" --title "$VERSAO" --notes "APK Android (assinado com chave de debug). Dados ficam só no aparelho." --repo "$GITHUB_REPOSITORY"
