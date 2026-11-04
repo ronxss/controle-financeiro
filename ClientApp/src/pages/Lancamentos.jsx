@@ -10,10 +10,14 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { useCadastros } from '../hooks.js';
 import { brl, dataBR } from '../utils/format.js';
+import { TEM_FIXAS } from '../modo.js';
+import CopiarFixas from '../components/CopiarFixas.jsx';
 import LancamentoDialog from '../components/LancamentoDialog.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
@@ -28,6 +32,7 @@ export default function Lancamentos() {
 
   const [tipo, setTipo] = useState('');
   const [status, setStatus] = useState('');
+  const [soFixas, setSoFixas] = useState(false);
   const [busca, setBusca] = useState('');
   const [buscaAplicada, setBuscaAplicada] = useState('');
 
@@ -44,6 +49,7 @@ export default function Lancamentos() {
     if (tipo) qs.set('tipo', tipo);
     if (status) qs.set('status', status);
     if (buscaAplicada) qs.set('busca', buscaAplicada);
+    if (TEM_FIXAS && soFixas) qs.set('fixa', 'true');
     try {
       setItens(await api.get(`/api/lancamentos?${qs}`));
       setErro('');
@@ -52,7 +58,7 @@ export default function Lancamentos() {
     } finally {
       setCarregando(false);
     }
-  }, [mes, tipo, status, buscaAplicada]);
+  }, [mes, tipo, status, buscaAplicada, soFixas]);
 
   useEffect(() => { setCarregando(true); carregar(); }, [carregar]);
 
@@ -77,6 +83,27 @@ export default function Lancamentos() {
       setErro(e.message);
     }
   };
+
+  const alternarFixa = async (l) => {
+    try {
+      await api.patch(`/api/lancamentos/${l.id}/fixa`, { fixa: !l.fixa });
+      setMsg(l.fixa ? 'Despesa não é mais fixa.' : 'Marcada como despesa fixa.');
+      carregar();
+    } catch (e) {
+      setErro(e.message);
+    }
+  };
+
+  const botaoFixa = (l, pequeno) => (TEM_FIXAS && l.tipo === 'Despesa' ? (
+    <Tooltip title={l.fixa ? 'Fixa: toque para desmarcar' : 'Marcar como despesa fixa'}>
+      <IconButton
+        size={pequeno ? 'small' : 'medium'} color={l.fixa ? 'primary' : 'default'} onClick={() => alternarFixa(l)}
+        aria-label={l.fixa ? 'Desmarcar despesa fixa' : 'Marcar como despesa fixa'} aria-pressed={l.fixa === true}
+      >
+        {l.fixa ? <PushPinIcon fontSize={pequeno ? 'small' : 'medium'} /> : <PushPinOutlinedIcon fontSize={pequeno ? 'small' : 'medium'} />}
+      </IconButton>
+    </Tooltip>
+  ) : null);
 
   const confirmarExclusao = async () => {
     try {
@@ -117,6 +144,16 @@ export default function Lancamentos() {
         />
       </Stack>
 
+      {TEM_FIXAS && (
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Chip
+            icon={<PushPinIcon />} label="Só fixas" clickable color={soFixas ? 'primary' : 'default'} variant={soFixas ? 'filled' : 'outlined'}
+            onClick={() => setSoFixas((v) => !v)} aria-pressed={soFixas}
+          />
+          <CopiarFixas mes={mes} size="small" onFeito={(t) => { setMsg(t); carregar(); }} onErro={setErro} />
+        </Stack>
+      )}
+
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip label={`Receitas: ${brl(receitas)}`} color="success" variant="outlined" />
         <Chip label={`Despesas: ${brl(despesas)}`} color="error" variant="outlined" />
@@ -134,7 +171,10 @@ export default function Lancamentos() {
           {itens.map((l) => (
             <Paper key={l.id} variant="outlined" sx={{ p: 1.5 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-                <Typography fontWeight={500} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{l.descricao}</Typography>
+                <Typography fontWeight={500} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  {l.descricao}
+                  {l.fixa && <Chip size="small" label="Fixa" color="primary" variant="outlined" sx={{ ml: 1, height: 20 }} />}
+                </Typography>
                 <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap', color: l.tipo === 'Receita' ? 'success.main' : 'error.main' }}>
                   {l.tipo === 'Receita' ? '+ ' : '− '}{brl(l.valor)}
                 </Typography>
@@ -151,6 +191,7 @@ export default function Lancamentos() {
                   aria-label={`${rotuloStatus(l.tipo, l.status)}. Toque para alterar o status`}
                 />
                 <Box sx={{ mr: -1 }}>
+                  {botaoFixa(l, false)}
                   <IconButton aria-label="Editar" onClick={() => setDialog({ aberto: true, item: l })}><EditIcon /></IconButton>
                   <IconButton aria-label="Excluir" onClick={() => setExcluir(l)}><DeleteIcon /></IconButton>
                 </Box>
@@ -189,7 +230,10 @@ export default function Lancamentos() {
               <TableRow key={l.id} hover>
                 <TableCell sx={{ whiteSpace: 'nowrap' }}>{dataBR(l.data)}</TableCell>
                 <TableCell>
-                  <Typography variant="body2" fontWeight={500}>{l.descricao}</Typography>
+                  <Typography variant="body2" fontWeight={500}>
+                    {l.descricao}
+                    {l.fixa && <Chip size="small" label="Fixa" color="primary" variant="outlined" sx={{ ml: 1, height: 18, fontSize: 11 }} />}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'block', sm: 'none' } }}>
                     {l.categoria}
                   </Typography>
@@ -210,6 +254,7 @@ export default function Lancamentos() {
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                  {botaoFixa(l, true)}
                   <IconButton size="small" aria-label="Editar" onClick={() => setDialog({ aberto: true, item: l })}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" aria-label="Excluir" onClick={() => setExcluir(l)}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>

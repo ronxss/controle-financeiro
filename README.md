@@ -143,6 +143,15 @@ Na primeira vez, **crie uma conta** (nome de usuário + senha). Podem existir v�
 - Quem usava uma versão anterior sem senha não perde nada: a primeira conta criada adota esses dados.
 - Limite do modelo: a criptografia protege o aparelho desligado/perdido e quem abrir o banco do navegador; não protege contra um aparelho já infectado ou contra quem observe você digitando a senha.
 
+### Despesas fixas e painel de métricas
+
+No app local (PWA/APK):
+
+- **Despesa fixa**: no formulário de despesa, ative “Despesa fixa (repete todo mês)”; em *Lançamentos* o alfinete marca/desmarca, e o filtro “Só fixas” mostra apenas elas. Receitas não podem ser fixas.
+- **Copiar fixas do mês anterior**: recria as fixas do mês anterior no mês exibido, como *Pendente* e com o dia ajustado ao tamanho do mês (31 → 28). Não duplica o que já foi copiado.
+- **Resumo**: além dos totais, mostra orçamento total e por categoria (atenção a partir de 80% do limite, estourado acima de 100%), fixas × variáveis, evolução de 6 meses, ritmo/projeção do mês, comparação com o mês anterior e as 5 maiores despesas. Despesas pagas contam como realizado; as pendentes aparecem à parte.
+- Backups antigos continuam válidos (lançamentos sem o campo valem como não fixos). Isso existe só no modo local; o servidor em C# não mudou.
+
 ### Desenvolvimento
 
 ```bash

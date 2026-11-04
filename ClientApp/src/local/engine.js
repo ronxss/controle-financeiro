@@ -76,6 +76,19 @@ function lerMes(mes, hoje) {
 
 const doMes = (estado, mes) => estado.lancamentos.filter((l) => l.data.slice(0, 7) === mes);
 
+/** Soma `delta` meses a "aaaa-mm" (aceita negativos e atravessa a virada do ano). */
+export function somarMeses(mes, delta) {
+  const [a, m] = mes.split('-').map(Number);
+  const total = a * 12 + (m - 1) + delta;
+  return `${Math.floor(total / 12)}-${dois(total % 12 + 1)}`;
+}
+
+/** Quantos dias tem o mês "aaaa-mm". */
+export function diasNoMes(mes) {
+  const [a, m] = mes.split('-').map(Number);
+  return new Date(Date.UTC(a, m, 0)).getUTCDate();
+}
+
 function lerId(texto) {
   const id = Number(texto);
   return Number.isInteger(id) && id > 0 ? id : null;
@@ -112,6 +125,7 @@ function dtoLancamento(estado, l) {
   return {
     id: l.id, data: l.data, tipo: l.tipo, categoriaId: l.categoriaId, categoria: cat?.nome ?? '',
     descricao: l.descricao, contaId: l.contaId, conta: conta?.nome ?? '', valor: emReais(l.valorCentavos), status: l.status,
+    fixa: l.fixa === true,
   };
 }
 
@@ -197,7 +211,17 @@ function contas(estado, metodo, id, corpo) {
 // ---------- Lançamentos ----------
 
 /** Valida o corpo como a API faz (DataAnnotations + ValidarAsync) e devolve os campos já normalizados. */
-function lerLancamento(estado, corpo) {
+const MSG_FIXA_RECEITA = 'Apenas despesas podem ser marcadas como fixas.';
+
+/** `fixa` é opcional: ausente = mantém o valor atual (`atual`) ou falso. Só despesas podem ser fixas. */
+function lerFixa(valor, tipo, atual) {
+  if (valor === undefined || valor === null) return tipo === 'Despesa' ? atual === true : false;
+  if (typeof valor !== 'boolean') throw new ErroLocal('Valor inválido para despesa fixa.', 400);
+  if (valor && tipo !== 'Despesa') throw new ErroLocal(MSG_FIXA_RECEITA, 400);
+  return valor;
+}
+
+function lerLancamento(estado, corpo, atual = null) {
   const c = corpo ?? {};
   if (c.data === null || c.data === undefined || c.data === '') throw new ErroLocal('Informe a data.', 400);
   if (!dataValida(c.data)) throw new ErroLocal('Data inválida.', 400);
@@ -222,7 +246,9 @@ function lerLancamento(estado, corpo) {
   if (cat.tipo !== tipo) throw new ErroLocal('A categoria selecionada não corresponde ao tipo do lançamento.', 400);
   if (!estado.contas.some((x) => x.id === contaId)) throw new ErroLocal('Conta inválida.', 400);
 
-  return { data: c.data, tipo, categoriaId, descricao, contaId, valorCentavos, status };
+  const fixa = lerFixa(c.fixa, tipo, atual?.fixa);
+
+  return { data: c.data, tipo, categoriaId, descricao, contaId, valorCentavos, status, fixa };
 }
 
 function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
@@ -235,6 +261,9 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
     const status = consulta.get('status') ? enumObrigatorio(consulta.get('status'), STATUS, '', 'Status inválido.') : null;
     const categoriaId = consulta.get('categoriaId') ? inteiroObrigatorio(consulta.get('categoriaId'), 'categoriaId inválido.') : null;
     const contaId = consulta.get('contaId') ? inteiroObrigatorio(consulta.get('contaId'), 'contaId inválido.') : null;
+    const fixaTexto = consulta.get('fixa');
+    if (fixaTexto && !['true', 'false'].includes(fixaTexto)) throw new ErroLocal('Valor de "fixa" inválido. Use true ou false.', 400);
+    if (fixaTexto) itens = itens.filter((l) => (l.fixa === true) === (fixaTexto === 'true'));
     if (tipo) itens = itens.filter((l) => l.tipo === tipo);
     if (status) itens = itens.filter((l) => l.status === status);
     if (categoriaId !== null) itens = itens.filter((l) => l.categoriaId === categoriaId);
@@ -257,9 +286,9 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
   }
 
   if (metodo === 'PUT' && id !== null && !subrota) {
-    const dados = lerLancamento(estado, corpo);
     const l = estado.lancamentos.find((x) => x.id === id);
     if (!l) throw naoEncontrado();
+    const dados = lerLancamento(estado, corpo, l);
     Object.assign(l, dados);
     return { status: 204, corpo: null, alterou: true };
   }
@@ -269,6 +298,14 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
     const l = estado.lancamentos.find((x) => x.id === id);
     if (!l) throw naoEncontrado();
     l.status = status;
+    return { status: 204, corpo: null, alterou: true };
+  }
+
+  if (metodo === 'PATCH' && id !== null && subrota === 'fixa') {
+    if (typeof corpo?.fixa !== 'boolean') throw new ErroLocal('Informe se a despesa é fixa (true ou false).', 400);
+    const l = estado.lancamentos.find((x) => x.id === id);
+    if (!l) throw naoEncontrado();
+    l.fixa = lerFixa(corpo.fixa, l.tipo, l.fixa);
     return { status: 204, corpo: null, alterou: true };
   }
 
@@ -367,6 +404,188 @@ function orcamento(estado, metodo, corpo, consulta, hoje) {
   return null;
 }
 
+// ---------- Despesas fixas: copiar para outro mês ----------
+
+const chaveFixa = (l) => `${l.descricao.trim().toLocaleLowerCase('pt-BR')}|${l.categoriaId}|${l.contaId}`;
+
+/**
+ * POST /api/despesas-fixas/copiar  { mes, origem? }
+ * Recria, no mês `mes`, as despesas fixas do mês `origem` (padrão: o mês anterior) como PENDENTES, no mesmo dia
+ * (ou no último dia do mês, se ele for menor: 31/jan -> 28/fev). Não duplica: se o mês já tem uma despesa igual
+ * (mesma descrição, categoria e conta), ela conta como "ignorada".
+ */
+function copiarFixas(estado, metodo, corpo, hoje) {
+  if (metodo !== 'POST') return null;
+  const mes = lerMes(corpo?.mes, hoje);
+  const origem = corpo?.origem ? lerMes(corpo.origem, hoje) : somarMeses(mes, -1);
+  if (origem === mes) throw new ErroLocal('O mês de origem deve ser diferente do mês de destino.', 400);
+
+  const fixas = doMes(estado, origem).filter((l) => l.tipo === 'Despesa' && l.fixa === true).sort((a, b) => a.id - b.id);
+
+  // Quantas despesas iguais já existem no destino (conta por chave, para tratar repetidas na origem).
+  const existentes = new Map();
+  for (const l of doMes(estado, mes)) {
+    if (l.tipo === 'Despesa') existentes.set(chaveFixa(l), (existentes.get(chaveFixa(l)) ?? 0) + 1);
+  }
+
+  const ultimoDia = diasNoMes(mes);
+  let criadas = 0;
+  let ignoradas = 0;
+  for (const f of fixas) {
+    const k = chaveFixa(f);
+    if ((existentes.get(k) ?? 0) > 0) {
+      existentes.set(k, existentes.get(k) - 1);
+      ignoradas += 1;
+      continue;
+    }
+    const dia = Math.min(Number(f.data.slice(8, 10)), ultimoDia);
+    estado.lancamentos.push({
+      id: ++estado.seq.lancamento, data: `${mes}-${dois(dia)}`, tipo: 'Despesa', categoriaId: f.categoriaId,
+      descricao: f.descricao, contaId: f.contaId, valorCentavos: f.valorCentavos, status: 'Pendente',
+      criadoEm: new Date().toISOString(), fixa: true,
+    });
+    criadas += 1;
+  }
+  return { status: 200, corpo: { mes, origem, encontradas: fixas.length, criadas, ignoradas }, alterou: criadas > 0 };
+}
+
+// ---------- Painel (dashboard) ----------
+
+const um = (n) => Math.round(n * 10) / 10; // 1 casa decimal
+const SEVERIDADE = { estourado: 0, alerta: 1, ok: 2, semLimite: 3 };
+
+function situacaoOrcamento(limite, realizado) {
+  if (limite <= 0) return 'semLimite';
+  const pct = (realizado / limite) * 100;
+  if (pct > 100) return 'estourado';
+  if (pct >= 80) return 'alerta';
+  return 'ok';
+}
+
+/** GET /api/dashboard?mes=aaaa-mm — todas as métricas da tela Resumo em uma chamada. */
+function painel(estado, metodo, consulta, hoje) {
+  if (metodo !== 'GET') return null;
+  const mes = lerMes(consulta.get('mes'), hoje);
+  const itens = doMes(estado, mes);
+  const total = (lista) => lista.reduce((s, l) => s + l.valorCentavos, 0);
+  const pagos = (lista) => lista.filter((l) => l.status === 'PagoRecebido');
+  const pendentes = (lista) => lista.filter((l) => l.status === 'Pendente');
+  const nomeCat = new Map(estado.categorias.map((c) => [c.id, c.nome]));
+
+  const receitas = itens.filter((l) => l.tipo === 'Receita');
+  const despesas = itens.filter((l) => l.tipo === 'Despesa');
+  const recebidas = total(pagos(receitas));
+  const pagas = total(pagos(despesas));
+
+  // Fixas x variáveis
+  const bloco = (lista) => ({
+    pagas: emReais(total(pagos(lista))), pendentes: emReais(total(pendentes(lista))), total: emReais(total(lista)),
+    quantidade: lista.length,
+  });
+  const fixas = despesas.filter((l) => l.fixa === true);
+  const variaveis = despesas.filter((l) => l.fixa !== true);
+  const totalDespesas = total(despesas);
+
+  // Orçamento: só despesas pagas (mesma regra da tela Orçamento)
+  const gastos = gastosPorCategoria(estado, mes);
+  const pendPorCat = new Map();
+  for (const l of pendentes(despesas)) pendPorCat.set(l.categoriaId, (pendPorCat.get(l.categoriaId) ?? 0) + l.valorCentavos);
+
+  const categoriasDespesa = estado.categorias.filter((c) => c.tipo === 'Despesa');
+  const linhas = categoriasDespesa.map((c) => {
+    const limite = c.limiteCentavos ?? 0;
+    const realizado = gastos.get(c.id) ?? 0;
+    return {
+      categoriaId: c.id, categoria: c.nome, limite, realizado, pendente: pendPorCat.get(c.id) ?? 0,
+      situacao: situacaoOrcamento(limite, realizado),
+      percentual: limite > 0 ? um((realizado / limite) * 100) : 0,
+    };
+  });
+  const comLimite = linhas.filter((x) => x.limite > 0);
+  const limiteTotal = comLimite.reduce((s, x) => s + x.limite, 0);
+  const realizadoComLimite = comLimite.reduce((s, x) => s + x.realizado, 0);
+  const semLimiteRealizado = linhas.filter((x) => x.limite <= 0).reduce((s, x) => s + x.realizado, 0);
+
+  const categoriasOrcamento = linhas
+    .filter((x) => x.limite > 0 || x.realizado > 0 || x.pendente > 0)
+    .sort((a, b) => SEVERIDADE[a.situacao] - SEVERIDADE[b.situacao] || b.percentual - a.percentual || b.realizado - a.realizado || porTexto(a.categoria, b.categoria))
+    .map((x) => ({
+      categoriaId: x.categoriaId, categoria: x.categoria, limite: emReais(x.limite), realizado: emReais(x.realizado),
+      pendente: emReais(x.pendente), disponivel: emReais(x.limite - x.realizado), percentual: x.percentual, situacao: x.situacao,
+    }));
+
+  // Comparação com o mês anterior
+  const anterior = doMes(estado, somarMeses(mes, -1));
+  const pagasAnterior = total(pagos(anterior.filter((l) => l.tipo === 'Despesa')));
+  const recebidasAnterior = total(pagos(anterior.filter((l) => l.tipo === 'Receita')));
+
+  // Ritmo de gasto (só despesas já pagas). Projeção apenas para o mês em andamento.
+  const mesHoje = hoje.slice(0, 7);
+  const dias = diasNoMes(mes);
+  const decorridos = mes === mesHoje ? Number(hoje.slice(8, 10)) : mes < mesHoje ? dias : 0;
+  const mediaDiaria = decorridos > 0 ? pagas / decorridos : 0;
+  const projecao = mes === mesHoje ? Math.round(mediaDiaria * dias) : null;
+
+  // Evolução: 6 meses terminando em `mes` (valores realizados)
+  const evolucao = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const m = somarMeses(mes, -i);
+    const doM = doMes(estado, m);
+    evolucao.push({
+      mes: m,
+      receitas: emReais(total(pagos(doM.filter((l) => l.tipo === 'Receita')))),
+      despesas: emReais(total(pagos(doM.filter((l) => l.tipo === 'Despesa')))),
+    });
+  }
+
+  const maiores = [...despesas]
+    .sort((a, b) => b.valorCentavos - a.valorCentavos || b.id - a.id)
+    .slice(0, 5)
+    .map((l) => ({
+      id: l.id, descricao: l.descricao, categoria: nomeCat.get(l.categoriaId) ?? '', data: l.data,
+      valor: emReais(l.valorCentavos), status: l.status, fixa: l.fixa === true,
+    }));
+
+  const itensFixos = [...fixas]
+    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.id - b.id))
+    .map((l) => ({
+      id: l.id, descricao: l.descricao, categoria: nomeCat.get(l.categoriaId) ?? '', data: l.data,
+      valor: emReais(l.valorCentavos), status: l.status,
+    }));
+
+  return {
+    status: 200,
+    corpo: {
+      mes,
+      saldoRealizado: emReais(recebidas - pagas),
+      despesas: bloco(despesas),
+      receitas: bloco(receitas),
+      fixas: { ...bloco(fixas), itens: itensFixos },
+      variaveis: bloco(variaveis),
+      percentualFixas: totalDespesas > 0 ? um((total(fixas) / totalDespesas) * 100) : 0,
+      orcamento: {
+        limiteTotal: emReais(limiteTotal),
+        realizado: emReais(realizadoComLimite),
+        disponivel: emReais(limiteTotal - realizadoComLimite),
+        percentual: limiteTotal > 0 ? um((realizadoComLimite / limiteTotal) * 100) : 0,
+        semLimiteRealizado: emReais(semLimiteRealizado),
+        categoriasComLimite: comLimite.length,
+        emAlerta: linhas.filter((x) => x.situacao === 'alerta').length,
+        estouradas: linhas.filter((x) => x.situacao === 'estourado').length,
+        categorias: categoriasOrcamento,
+      },
+      comparativo: {
+        despesasPagasMesAnterior: emReais(pagasAnterior),
+        receitasRecebidasMesAnterior: emReais(recebidasAnterior),
+        variacaoDespesas: pagasAnterior > 0 ? um(((pagas - pagasAnterior) / pagasAnterior) * 100) : null,
+      },
+      ritmo: { diasDecorridos: decorridos, diasNoMes: dias, mediaDiaria: emReais(Math.round(mediaDiaria)), projecaoDespesas: projecao === null ? null : emReais(projecao) },
+      evolucao,
+      maioresDespesas: maiores,
+    },
+  };
+}
+
 // ---------- Roteador ----------
 
 /**
@@ -388,12 +607,15 @@ export function rotear(estado, metodo, url, corpo, { hoje = hojeISO() } = {}) {
     const idInvalido = idTexto !== undefined && id === null;
     const subrota = partes[3];
 
-    if (!idInvalido && partes.length <= 4) {
+    if (recurso === 'despesas-fixas' && partes.length === 3 && idTexto === 'copiar') {
+      r = copiarFixas(estado, m, corpo, hoje);
+    } else if (!idInvalido && partes.length <= 4) {
       if (recurso === 'categorias' && partes.length <= 3) r = categorias(estado, m, id, corpo);
       else if (recurso === 'contas' && partes.length <= 3) r = contas(estado, m, id, corpo);
       else if (recurso === 'lancamentos') r = lancamentos(estado, m, id, corpo, u.searchParams, hoje, subrota);
       else if (recurso === 'resumo' && partes.length === 2) r = resumo(estado, m, u.searchParams, hoje);
       else if (recurso === 'orcamento' && partes.length === 2) r = orcamento(estado, m, corpo, u.searchParams, hoje);
+      else if (recurso === 'dashboard' && partes.length === 2) r = painel(estado, m, u.searchParams, hoje);
     }
   }
 
@@ -455,6 +677,8 @@ export function validarEstado(e) {
     lancamentos: e.lancamentos.map((l) => ({
       id: l.id, data: l.data, tipo: l.tipo, categoriaId: l.categoriaId, descricao: l.descricao.trim(),
       contaId: l.contaId, valorCentavos: l.valorCentavos, status: l.status, criadoEm: typeof l.criadoEm === 'string' ? l.criadoEm : '',
+      // Backups e dados de versões anteriores não têm "fixa": contam como não fixa. Só despesas podem ser fixas.
+      fixa: l.tipo === 'Despesa' && l.fixa === true,
     })),
   };
 }

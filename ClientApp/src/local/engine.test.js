@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  criarEstadoInicial, rotear, ErroLocal, montarBackup, lerBackup, validarEstado, hojeISO,
+  criarEstadoInicial, rotear, ErroLocal, montarBackup, lerBackup, validarEstado, hojeISO, somarMeses, diasNoMes,
 } from './engine.js';
 
 const HOJE = '2026-11-15';
@@ -59,6 +59,7 @@ test('lançamento: cria, lista no formato da API e devolve só o id no POST', ()
   assert.deepEqual(item, {
     id: criado.id, data: '2026-11-10', tipo: 'Despesa', categoriaId: idCategoria(e, 'Alimentação'), categoria: 'Alimentação',
     descricao: 'Mercado', contaId: idConta(e, 'Conta corrente'), conta: 'Conta corrente', valor: 150.9, status: 'PagoRecebido',
+    fixa: false,
   });
 });
 
@@ -324,4 +325,350 @@ test('backup: contadores nunca ficam atrás dos ids existentes', () => {
 test('hojeISO usa a data local', () => {
   assert.equal(hojeISO(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
   assert.equal(hojeISO(new Date(2026, 11, 31, 0, 0)), '2026-12-31');
+});
+
+
+// =====================================================================================
+// Despesas fixas
+// =====================================================================================
+
+const criar = (e, extra) => api(e, 'POST', '/api/lancamentos', lanc(e, extra)).id;
+const obter = (e, id, mes = '2026-11') => api(e, 'GET', `/api/lancamentos?mes=${mes}`).find((l) => l.id === id);
+
+test('fixa: nasce falsa, pode ser criada como fixa e aparece na listagem', () => {
+  const e = criarEstadoInicial();
+  const a = criar(e, { descricao: 'Aluguel', fixa: true });
+  const b = criar(e, { descricao: 'Mercado' });
+  assert.equal(obter(e, a).fixa, true);
+  assert.equal(obter(e, b).fixa, false);
+});
+
+test('fixa: só despesas; valor precisa ser booleano', () => {
+  const e = criarEstadoInicial();
+  const receita = { tipo: 'Receita', categoriaId: idCategoria(e, 'Salário'), descricao: 'Salário' };
+  falha(() => criar(e, { ...receita, fixa: true }), 400, 'Apenas despesas podem ser marcadas como fixas.');
+  assert.doesNotThrow(() => criar(e, { ...receita, fixa: false }));
+  falha(() => criar(e, { fixa: 'sim' }), 400, 'Valor inválido para despesa fixa.');
+  falha(() => criar(e, { fixa: 1 }), 400, 'Valor inválido para despesa fixa.');
+});
+
+test('fixa: editar sem mandar o campo preserva; mandar muda; virar receita zera', () => {
+  const e = criarEstadoInicial();
+  const id = criar(e, { fixa: true });
+  const { fixa, ...semFixa } = lanc(e, { valor: 77 });
+  api(e, 'PUT', `/api/lancamentos/${id}`, semFixa); // cliente antigo, que não conhece "fixa"
+  assert.equal(obter(e, id).fixa, true);
+  assert.equal(obter(e, id).valor, 77);
+
+  api(e, 'PUT', `/api/lancamentos/${id}`, lanc(e, { fixa: false }));
+  assert.equal(obter(e, id).fixa, false);
+
+  api(e, 'PUT', `/api/lancamentos/${id}`, lanc(e, { fixa: true }));
+  api(e, 'PUT', `/api/lancamentos/${id}`, lanc(e, { tipo: 'Receita', categoriaId: idCategoria(e, 'Salário') }));
+  assert.equal(obter(e, id).fixa, false);
+});
+
+test('fixa: PATCH alterna, valida e respeita receitas e ids inexistentes', () => {
+  const e = criarEstadoInicial();
+  const id = criar(e);
+  api(e, 'PATCH', `/api/lancamentos/${id}/fixa`, { fixa: true });
+  assert.equal(obter(e, id).fixa, true);
+  api(e, 'PATCH', `/api/lancamentos/${id}/fixa`, { fixa: false });
+  assert.equal(obter(e, id).fixa, false);
+
+  falha(() => api(e, 'PATCH', `/api/lancamentos/${id}/fixa`, {}), 400, 'Informe se a despesa é fixa (true ou false).');
+  falha(() => api(e, 'PATCH', `/api/lancamentos/${id}/fixa`, { fixa: 'true' }), 400);
+  falha(() => api(e, 'PATCH', '/api/lancamentos/999/fixa', { fixa: true }), 404, 'Registro não encontrado.');
+
+  const rec = criar(e, { tipo: 'Receita', categoriaId: idCategoria(e, 'Salário'), descricao: 'Salário' });
+  falha(() => api(e, 'PATCH', `/api/lancamentos/${rec}/fixa`, { fixa: true }), 400, 'Apenas despesas podem ser marcadas como fixas.');
+});
+
+test('fixa: filtro da listagem (true/false) e valor inválido', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Aluguel', fixa: true });
+  criar(e, { descricao: 'Mercado' });
+  const nomes = (q) => api(e, 'GET', `/api/lancamentos?mes=2026-11&${q}`).map((l) => l.descricao);
+  assert.deepEqual(nomes('fixa=true'), ['Aluguel']);
+  assert.deepEqual(nomes('fixa=false'), ['Mercado']);
+  assert.equal(nomes('').length, 2);
+  falha(() => nomes('fixa=talvez'), 400, 'Valor de "fixa" inválido. Use true ou false.');
+});
+
+test('somarMeses e diasNoMes: viradas de ano e anos bissextos', () => {
+  assert.equal(somarMeses('2026-01', -1), '2025-12');
+  assert.equal(somarMeses('2026-12', 1), '2027-01');
+  assert.equal(somarMeses('2026-03', -15), '2024-12');
+  assert.equal(somarMeses('2026-06', 0), '2026-06');
+  assert.equal(diasNoMes('2026-02'), 28);
+  assert.equal(diasNoMes('2028-02'), 29);
+  assert.equal(diasNoMes('2026-04'), 30);
+  assert.equal(diasNoMes('2026-12'), 31);
+});
+
+// ---------- Copiar fixas ----------
+
+const copiar = (e, corpo) => api(e, 'POST', '/api/despesas-fixas/copiar', corpo);
+
+test('copiar fixas: cria no mês seguinte como pendente, mesmo dia, e ignora o que não é fixa', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Aluguel', data: '2026-10-05', valor: 1500, fixa: true });
+  criar(e, { descricao: 'Internet', data: '2026-10-20', valor: 99.9, fixa: true, status: 'Pendente' });
+  criar(e, { descricao: 'Mercado', data: '2026-10-12', valor: 300 }); // variável: não copia
+  criar(e, { descricao: 'Salário', data: '2026-10-05', tipo: 'Receita', categoriaId: idCategoria(e, 'Salário') });
+
+  const r = copiar(e, { mes: '2026-11' });
+  assert.deepEqual(r, { mes: '2026-11', origem: '2026-10', encontradas: 2, criadas: 2, ignoradas: 0 });
+
+  const nov = api(e, 'GET', '/api/lancamentos?mes=2026-11').sort((a, b) => a.data.localeCompare(b.data));
+  assert.deepEqual(nov.map((l) => [l.descricao, l.data, l.valor, l.status, l.fixa, l.tipo]), [
+    ['Aluguel', '2026-11-05', 1500, 'Pendente', true, 'Despesa'],
+    ['Internet', '2026-11-20', 99.9, 'Pendente', true, 'Despesa'],
+  ]);
+  // o mês de origem não muda
+  assert.equal(api(e, 'GET', '/api/lancamentos?mes=2026-10').length, 4);
+});
+
+test('copiar fixas: não duplica ao repetir a ação, nem o que já existe no mês', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Aluguel', data: '2026-10-05', fixa: true });
+  criar(e, { descricao: 'Internet', data: '2026-10-20', fixa: true });
+  criar(e, { descricao: '  aluguel ', data: '2026-11-03', fixa: false, valor: 1 }); // já existe (outra caixa/espaços)
+
+  const primeira = copiar(e, { mes: '2026-11' });
+  assert.equal(primeira.criadas, 1);
+  assert.equal(primeira.ignoradas, 1);
+  const segunda = copiar(e, { mes: '2026-11' });
+  assert.equal(segunda.criadas, 0);
+  assert.equal(segunda.ignoradas, 2);
+  assert.equal(api(e, 'GET', '/api/lancamentos?mes=2026-11').length, 2);
+});
+
+test('copiar fixas: despesas repetidas na origem são todas copiadas (conta por quantidade)', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Streaming', data: '2026-10-05', valor: 40, fixa: true });
+  criar(e, { descricao: 'Streaming', data: '2026-10-06', valor: 40, fixa: true });
+  assert.equal(copiar(e, { mes: '2026-11' }).criadas, 2);
+  assert.equal(copiar(e, { mes: '2026-11' }).criadas, 0);
+});
+
+test('copiar fixas: dia 31 vira o último dia do mês menor; virada de ano; origem explícita', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Condomínio', data: '2026-01-31', fixa: true });
+  const fev = copiar(e, { mes: '2026-02' });
+  assert.equal(fev.criadas, 1);
+  assert.equal(api(e, 'GET', '/api/lancamentos?mes=2026-02')[0].data, '2026-02-28');
+
+  criar(e, { descricao: 'Seguro', data: '2025-12-15', fixa: true });
+  assert.equal(copiar(e, { mes: '2026-01' }).origem, '2025-12');
+
+  // origem explícita (pula meses)
+  const r = copiar(e, { mes: '2026-06', origem: '2026-01' });
+  assert.equal(r.origem, '2026-01');
+  assert.equal(api(e, 'GET', '/api/lancamentos?mes=2026-06')[0].data, '2026-06-30');
+});
+
+test('copiar fixas: sem fixas na origem, mês igual e mês inválido', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Mercado', data: '2026-10-12' });
+  const r = rotear(e, 'POST', '/api/despesas-fixas/copiar', { mes: '2026-11' }, { hoje: HOJE });
+  assert.deepEqual(r.corpo, { mes: '2026-11', origem: '2026-10', encontradas: 0, criadas: 0, ignoradas: 0 });
+  assert.equal(r.alterou, false, 'nada criado = nada a gravar');
+
+  falha(() => copiar(e, { mes: '2026-11', origem: '2026-11' }), 400, 'O mês de origem deve ser diferente do mês de destino.');
+  falha(() => copiar(e, { mes: '2026-13' }), 400, 'Mês inválido. Use o formato AAAA-MM.');
+  falha(() => copiar(e, { mes: '2026-11', origem: 'abc' }), 400, 'Mês inválido. Use o formato AAAA-MM.');
+  falha(() => api(e, 'GET', '/api/despesas-fixas/copiar'), 404);
+  falha(() => api(e, 'POST', '/api/despesas-fixas/outra'), 404);
+});
+
+test('copiar fixas: sem corpo usa o mês atual; ids continuam únicos', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Aluguel', data: '2026-10-05', fixa: true });
+  const r = copiar(e, undefined); // HOJE = 2026-11-15
+  assert.equal(r.mes, '2026-11');
+  const ids = e.lancamentos.map((l) => l.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(e.seq.lancamento, Math.max(...ids));
+});
+
+// ---------- Painel ----------
+
+const painelDe = (e, mes = '2026-11', hoje = HOJE) => rotear(e, 'GET', `/api/dashboard?mes=${mes}`, undefined, { hoje }).corpo;
+
+function cenario() {
+  const e = criarEstadoInicial();
+  const alim = idCategoria(e, 'Alimentação');
+  const mor = idCategoria(e, 'Moradia');
+  const laz = idCategoria(e, 'Lazer');
+  api(e, 'PUT', '/api/orcamento', [
+    { categoriaId: alim, limite: 500 }, { categoriaId: mor, limite: 2000 }, { categoriaId: laz, limite: 100 },
+  ]);
+  // novembro/2026
+  criar(e, { descricao: 'Aluguel', data: '2026-11-05', valor: 1600, categoriaId: mor, fixa: true }); // 80% de 2000 => alerta
+  criar(e, { descricao: 'Mercado', data: '2026-11-08', valor: 300, categoriaId: alim });            // 60% => ok
+  criar(e, { descricao: 'Cinema', data: '2026-11-09', valor: 150, categoriaId: laz });              // 150% => estourado
+  criar(e, { descricao: 'Internet', data: '2026-11-25', valor: 100, categoriaId: idCategoria(e, 'Contas e impostos'), fixa: true, status: 'Pendente' });
+  criar(e, { descricao: 'Remédio', data: '2026-11-10', valor: 50, categoriaId: idCategoria(e, 'Saúde') }); // sem limite
+  criar(e, { descricao: 'Salário', data: '2026-11-05', valor: 5000, tipo: 'Receita', categoriaId: idCategoria(e, 'Salário') });
+  criar(e, { descricao: 'Freela', data: '2026-11-20', valor: 700, tipo: 'Receita', categoriaId: idCategoria(e, 'Freelance'), status: 'Pendente' });
+  // outubro/2026 (mês anterior)
+  criar(e, { descricao: 'Aluguel', data: '2026-10-05', valor: 1600, categoriaId: mor, fixa: true });
+  criar(e, { descricao: 'Mercado', data: '2026-10-08', valor: 400, categoriaId: alim });
+  criar(e, { descricao: 'Salário', data: '2026-10-05', valor: 4800, tipo: 'Receita', categoriaId: idCategoria(e, 'Salário') });
+  return e;
+}
+
+test('painel: totais de despesas, receitas, fixas e variáveis', () => {
+  const p = painelDe(cenario());
+  assert.equal(p.mes, '2026-11');
+  assert.deepEqual(p.despesas, { pagas: 2100, pendentes: 100, total: 2200, quantidade: 5 });
+  assert.deepEqual(p.receitas, { pagas: 5000, pendentes: 700, total: 5700, quantidade: 2 });
+  assert.equal(p.saldoRealizado, 2900);
+  assert.deepEqual({ ...p.fixas, itens: undefined }, { pagas: 1600, pendentes: 100, total: 1700, quantidade: 2, itens: undefined });
+  assert.deepEqual(p.variaveis, { pagas: 500, pendentes: 0, total: 500, quantidade: 3 });
+  assert.equal(p.percentualFixas, 77.3); // 1700 / 2200
+  assert.deepEqual(p.fixas.itens.map((i) => [i.descricao, i.data, i.valor, i.status]), [
+    ['Aluguel', '2026-11-05', 1600, 'PagoRecebido'],
+    ['Internet', '2026-11-25', 100, 'Pendente'],
+  ]);
+});
+
+test('painel: orçamento total, situação por categoria e ordem (pior primeiro)', () => {
+  const o = painelDe(cenario()).orcamento;
+  assert.equal(o.limiteTotal, 2600);
+  assert.equal(o.realizado, 2050); // só categorias COM limite: 1600 + 300 + 150
+  assert.equal(o.disponivel, 550);
+  assert.equal(o.percentual, 78.8);
+  assert.equal(o.semLimiteRealizado, 50);
+  assert.equal(o.categoriasComLimite, 3);
+  assert.equal(o.emAlerta, 1);
+  assert.equal(o.estouradas, 1);
+  assert.deepEqual(o.categorias.map((c) => [c.categoria, c.situacao, c.percentual]), [
+    ['Lazer', 'estourado', 150],
+    ['Moradia', 'alerta', 80],
+    ['Alimentação', 'ok', 60],
+    ['Saúde', 'semLimite', 0],
+    ['Contas e impostos', 'semLimite', 0], // só tem despesa pendente: aparece, mas sem realizado
+  ]);
+  const moradia = o.categorias.find((c) => c.categoria === 'Moradia');
+  assert.deepEqual([moradia.limite, moradia.realizado, moradia.disponivel], [2000, 1600, 400]);
+  assert.equal(o.categorias.find((c) => c.categoria === 'Contas e impostos').pendente, 100);
+});
+
+test('painel: limites exatos nos cortes (80% é alerta, 100% é ok, acima é estourado)', () => {
+  const e = criarEstadoInicial();
+  const cat = idCategoria(e, 'Lazer');
+  api(e, 'PUT', '/api/orcamento', [{ categoriaId: cat, limite: 100 }]);
+  const situacao = (valor) => {
+    const x = criarEstadoInicial();
+    api(x, 'PUT', '/api/orcamento', [{ categoriaId: idCategoria(x, 'Lazer'), limite: 100 }]);
+    criar(x, { categoriaId: idCategoria(x, 'Lazer'), valor });
+    return painelDe(x).orcamento.categorias[0].situacao;
+  };
+  assert.equal(situacao(79.99), 'ok');
+  assert.equal(situacao(80), 'alerta');
+  assert.equal(situacao(100), 'alerta');
+  assert.equal(situacao(100.01), 'estourado');
+});
+
+test('painel: comparação com o mês anterior', () => {
+  const c = painelDe(cenario()).comparativo;
+  assert.equal(c.despesasPagasMesAnterior, 2000);
+  assert.equal(c.receitasRecebidasMesAnterior, 4800);
+  assert.equal(c.variacaoDespesas, 5); // 2100 vs 2000
+  // sem base de comparação: null (não divide por zero)
+  assert.equal(painelDe(cenario(), '2026-01').comparativo.variacaoDespesas, null);
+});
+
+test('painel: comparação atravessa a virada de ano', () => {
+  const e = criarEstadoInicial();
+  criar(e, { data: '2025-12-20', valor: 200 });
+  criar(e, { data: '2026-01-10', valor: 100 });
+  const c = painelDe(e, '2026-01', '2026-01-31').comparativo;
+  assert.equal(c.despesasPagasMesAnterior, 200);
+  assert.equal(c.variacaoDespesas, -50);
+});
+
+test('painel: ritmo e projeção só no mês em andamento', () => {
+  const atual = painelDe(cenario()).ritmo; // hoje = 15/11, 2100 pagos
+  assert.deepEqual(atual, { diasDecorridos: 15, diasNoMes: 30, mediaDiaria: 140, projecaoDespesas: 4200 });
+
+  const passado = painelDe(cenario(), '2026-10').ritmo; // mês fechado: divide pelo mês inteiro, sem projeção
+  assert.equal(passado.diasDecorridos, 31);
+  assert.equal(passado.projecaoDespesas, null);
+  assert.equal(passado.mediaDiaria, 64.52); // 2000 / 31
+
+  const futuro = painelDe(cenario(), '2027-03').ritmo;
+  assert.deepEqual(futuro, { diasDecorridos: 0, diasNoMes: 31, mediaDiaria: 0, projecaoDespesas: null });
+});
+
+test('painel: evolução tem 6 meses terminando no mês pedido, com realizado de receitas e despesas', () => {
+  const ev = painelDe(cenario()).evolucao;
+  assert.deepEqual(ev.map((x) => x.mes), ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']);
+  assert.deepEqual(ev.at(-1), { mes: '2026-11', receitas: 5000, despesas: 2100 }); // pendentes não contam
+  assert.deepEqual(ev.at(-2), { mes: '2026-10', receitas: 4800, despesas: 2000 });
+  assert.deepEqual(ev[0], { mes: '2026-06', receitas: 0, despesas: 0 });
+  assert.deepEqual(painelDe(cenario(), '2026-02').evolucao.map((x) => x.mes), ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02']);
+});
+
+test('painel: maiores despesas (até 5, valor decrescente, inclui pendentes e marca as fixas)', () => {
+  const m = painelDe(cenario()).maioresDespesas;
+  assert.deepEqual(m.map((x) => [x.descricao, x.valor, x.fixa]), [
+    ['Aluguel', 1600, true], ['Mercado', 300, false], ['Cinema', 150, false], ['Internet', 100, true], ['Remédio', 50, false],
+  ]);
+  const e = cenario();
+  criar(e, { descricao: 'Extra', valor: 10 });
+  assert.equal(painelDe(e).maioresDespesas.length, 5);
+});
+
+test('painel: mês vazio, mês inválido, método errado e padrão = mês atual', () => {
+  const e = criarEstadoInicial();
+  const p = painelDe(e);
+  assert.deepEqual(p.despesas, { pagas: 0, pendentes: 0, total: 0, quantidade: 0 });
+  assert.equal(p.percentualFixas, 0);
+  assert.equal(p.orcamento.percentual, 0);
+  assert.equal(p.orcamento.limiteTotal, 0);
+  assert.deepEqual(p.orcamento.categorias, []);
+  assert.deepEqual(p.maioresDespesas, []);
+  assert.equal(p.evolucao.length, 6);
+
+  falha(() => painelDe(e, '2026-13'), 400, 'Mês inválido. Use o formato AAAA-MM.');
+  falha(() => api(e, 'POST', '/api/dashboard', {}), 404);
+  assert.equal(rotear(e, 'GET', '/api/dashboard', undefined, { hoje: HOJE }).corpo.mes, '2026-11');
+  assert.equal(rotear(e, 'GET', '/api/dashboard', undefined, { hoje: HOJE }).alterou, false);
+});
+
+test('painel: valores em centavos exatos (sem erro de ponto flutuante)', () => {
+  const e = criarEstadoInicial();
+  criar(e, { valor: 0.1 });
+  criar(e, { valor: 0.2 });
+  assert.equal(painelDe(e).despesas.pagas, 0.3);
+});
+
+// ---------- Compatibilidade com dados e backups antigos ----------
+
+test('dados antigos sem o campo "fixa" continuam válidos e contam como não fixa', () => {
+  const e = criarEstadoInicial();
+  criar(e, { descricao: 'Mercado' });
+  const antigo = JSON.parse(JSON.stringify(e));
+  for (const l of antigo.lancamentos) delete l.fixa; // como era na versão anterior
+  const lido = validarEstado(antigo);
+  assert.equal(lido.lancamentos[0].fixa, false);
+
+  const viaBackup = lerBackup(JSON.stringify({ app: 'controle-financeiro', exportadoEm: 'x', dados: antigo }));
+  assert.equal(viaBackup.lancamentos[0].fixa, false);
+  assert.equal(obter(viaBackup, viaBackup.lancamentos[0].id).fixa, false);
+});
+
+test('backup novo preserva "fixa"; receita marcada como fixa em arquivo adulterado é corrigida', () => {
+  const e = criarEstadoInicial();
+  const id = criar(e, { descricao: 'Aluguel', fixa: true });
+  const volta = lerBackup(montarBackup(e));
+  assert.equal(volta.lancamentos.find((l) => l.id === id).fixa, true);
+
+  const rec = criar(e, { tipo: 'Receita', categoriaId: idCategoria(e, 'Salário'), descricao: 'Salário' });
+  const adulterado = JSON.parse(montarBackup(e));
+  adulterado.dados.lancamentos.find((l) => l.id === rec).fixa = true;
+  assert.equal(lerBackup(JSON.stringify(adulterado)).lancamentos.find((l) => l.id === rec).fixa, false);
 });
