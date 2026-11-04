@@ -18,7 +18,7 @@ const cancelou = (e) => /cancel/i.test(String(e?.message ?? e ?? ''));
  * Devolve { salvoEm: 'Documentos/Controle Financeiro/arquivo.json' | null, compartilhado: boolean }.
  * Lança erro só se não conseguir nem salvar a cópia nem abrir o compartilhamento.
  */
-export async function exportarNoAparelho(nome, texto, { Filesystem, Directory, Encoding, Share }) {
+export async function exportarNoAparelho(nome, texto, { Filesystem, Directory, Encoding, Share }, titulo = 'Backup do Controle Financeiro') {
   let salvoEm = null;
   try {
     await Filesystem.writeFile({
@@ -33,14 +33,14 @@ export async function exportarNoAparelho(nome, texto, { Filesystem, Directory, E
   let erroCompartilhar = null;
   try {
     const { uri } = await Filesystem.writeFile({ path: nome, data: texto, directory: Directory.Cache, encoding: Encoding.UTF8 });
-    await Share.share({ title: 'Backup do Controle Financeiro', files: [uri], dialogTitle: 'Salvar ou enviar o backup' });
+    await Share.share({ title: titulo, files: [uri], dialogTitle: 'Salvar ou enviar o arquivo' });
     compartilhado = true;
   } catch (e) {
     if (!cancelou(e)) erroCompartilhar = e;
   }
 
   if (!salvoEm && erroCompartilhar) {
-    throw new Error(`Não foi possível gerar o backup: ${erroCompartilhar.message || erroCompartilhar}`);
+    throw new Error(`Não foi possível gerar o arquivo: ${erroCompartilhar.message || erroCompartilhar}`);
   }
   return { salvoEm, compartilhado };
 }

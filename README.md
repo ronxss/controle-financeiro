@@ -160,6 +160,11 @@ No app local (PWA/APK):
 - **Tela Cartões**: faturas que vencem no mês selecionado (total, pago, a pagar, situação: aberta, fechada, vencida, paga) e o botão **Pagar fatura**, que marca como pagos todos os pendentes dela. Estornos (receita no cartão) abatem do total.
 - Nos avisos e notificações, compras no cartão não aparecem uma a uma: aparece a **fatura**, pela data de vencimento.
 
+### Metas de economia e planilha (CSV)
+
+- **Metas** (*Orçamento → Metas*): nome, valor-alvo e prazo opcional. Registre o que guardou ou retirou; o app mostra progresso, quanto falta, quanto guardar por mês até o prazo e se está no ritmo (comparando com uma linha reta da criação até o prazo). Os registros ficam só na meta: não criam lançamentos.
+- **Exportar planilha (CSV)** (menu do usuário): mês selecionado, ano ou tudo. Formato para Excel/Planilhas em português (separador `;`, vírgula decimal, datas dd/mm/aaaa, acentos corretos). A coluna *Valor* tem sinal (despesas negativas). Descrições que começam com `=`, `+`, `-` ou `@` são gravadas como texto, para não virarem fórmula.
+
 ### Lembretes e backup
 
 Menu do usuário → **Lembretes e backup**:
