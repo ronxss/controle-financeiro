@@ -25,6 +25,8 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import { MODO_LOCAL } from '../modo.js';
 import { conferirBackup, exportarBackup, importarBackup, mensagemExportacao } from '../local/backup.js';
 import ConfigAparelhoDialog from './ConfigAparelhoDialog.jsx';
+import ExportarCsvDialog from './ExportarCsvDialog.jsx';
+import GridOnIcon from '@mui/icons-material/GridOn';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 
 const LARGURA = 220;
@@ -46,6 +48,7 @@ export default function Layout({ children }) {
   const [ancora, setAncora] = useState(null);
   const [senhaAberta, setSenhaAberta] = useState(false);
   const [configAberta, setConfigAberta] = useState(false);
+  const [csvAberto, setCsvAberto] = useState(false);
 
   // Backup (só no modo local, onde os dados existem apenas no aparelho).
   const [aviso, setAviso] = useState('');
@@ -144,6 +147,11 @@ export default function Layout({ children }) {
               </MenuItem>
             )}
             {MODO_LOCAL && (
+              <MenuItem onClick={() => { setAncora(null); setCsvAberto(true); }}>
+                <ListItemIcon><GridOnIcon fontSize="small" /></ListItemIcon>Exportar planilha (CSV)
+              </MenuItem>
+            )}
+            {MODO_LOCAL && (
               <MenuItem onClick={() => { setAncora(null); seletorArquivo.current?.click(); }}>
                 <ListItemIcon><FileUploadIcon fontSize="small" /></ListItemIcon>Importar backup
               </MenuItem>
@@ -206,6 +214,7 @@ export default function Layout({ children }) {
       )}
 
       <SenhaDialog open={senhaAberta} onClose={() => setSenhaAberta(false)} />
+      {MODO_LOCAL && <ExportarCsvDialog open={csvAberto} mes={mes} onClose={() => setCsvAberto(false)} onAviso={setAviso} />}
       {MODO_LOCAL && <ConfigAparelhoDialog open={configAberta} onClose={() => setConfigAberta(false)} onExportar={aoExportar} />}
 
       {MODO_LOCAL && (

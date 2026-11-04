@@ -34,7 +34,10 @@ const LIMITE_MAXIMO_CENTAVOS = 99_999_999_999; // 999.999.999,99 (mesmo teto da 
 // ---------- Estado ----------
 
 export function criarEstadoInicial() {
-  const estado = { versao: VERSAO_DADOS, seq: { categoria: 0, conta: 0, lancamento: 0 }, categorias: [], contas: [], lancamentos: [] };
+  const estado = {
+    versao: VERSAO_DADOS, seq: { categoria: 0, conta: 0, lancamento: 0, meta: 0, aporte: 0 },
+    categorias: [], contas: [], lancamentos: [], metas: [],
+  };
   for (const nome of CATEGORIAS_RECEITA) {
     estado.categorias.push({ id: ++estado.seq.categoria, nome, tipo: 'Receita', limiteCentavos: null });
   }
@@ -834,6 +837,165 @@ export function vencimentosPendentes(estado) {
   return itens.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.chave < b.chave ? -1 : 1));
 }
 
+// ---------- Metas de economia ----------
+//
+// Uma meta tem nome, valor-alvo e (opcional) prazo. O dinheiro guardado é registrado na própria meta como
+// "aportes" (positivos) e "retiradas" (negativos). Isso NÃO cria lançamentos: a meta é um cofrinho de controle.
+
+function lerMeta(corpo) {
+  const nome = String(corpo?.nome ?? '').trim();
+  if (!nome) throw new ErroLocal('Informe o nome da meta.', 400);
+  if (nome.length > 60) throw new ErroLocal('O nome deve ter no máximo 60 caracteres.', 400);
+  const alvo = Number(corpo?.alvo);
+  const alvoCentavos = emCentavos(alvo);
+  if (!Number.isFinite(alvo) || alvoCentavos < 1 || alvoCentavos > LIMITE_MAXIMO_CENTAVOS) {
+    throw new ErroLocal('Informe um valor-alvo maior que zero.', 400);
+  }
+  const prazo = corpo?.prazo === undefined || corpo?.prazo === null || corpo?.prazo === '' ? null : corpo.prazo;
+  if (prazo !== null && !dataValida(prazo)) throw new ErroLocal('Prazo inválido.', 400);
+  return { nome, alvoCentavos, prazo };
+}
+
+const guardadoDa = (m) => m.aportes.reduce((t, a) => t + a.valorCentavos, 0);
+
+function dtoMeta(m, hoje) {
+  const guardado = guardadoDa(m);
+  const falta = Math.max(0, m.alvoCentavos - guardado);
+  const inicio = m.criadoEm ? hojeISO(new Date(m.criadoEm)) : hoje;
+  let situacao;
+  let mesesRestantes = null;
+  let mensalSugerido = null;
+  if (guardado >= m.alvoCentavos) situacao = 'concluida';
+  else if (!m.prazo) situacao = 'semPrazo';
+  else if (hoje > m.prazo) situacao = 'atrasada';
+  else {
+    // Meses que ainda dá para guardar, contando o atual (prazo em dezembro, hoje em novembro: 2 meses).
+    const [ah, mh] = hoje.split('-').map(Number);
+    const [ap, mp] = m.prazo.split('-').map(Number);
+    mesesRestantes = (ap * 12 + mp) - (ah * 12 + mh) + 1;
+    mensalSugerido = Math.ceil(falta / mesesRestantes);
+    // Ritmo: quanto já deveria ter, numa linha reta da criação até o prazo.
+    const total = Math.max(1, diasEntre(inicio, m.prazo));
+    const passados = Math.min(total, Math.max(0, diasEntre(inicio, hoje)));
+    const esperado = Math.round((m.alvoCentavos * passados) / total);
+    situacao = guardado >= esperado ? 'noRitmo' : 'abaixoDoRitmo';
+  }
+  return {
+    id: m.id, nome: m.nome, alvo: emReais(m.alvoCentavos), prazo: m.prazo,
+    guardado: emReais(guardado), falta: emReais(falta),
+    percentual: um(Math.min(100, (guardado / m.alvoCentavos) * 100)),
+    situacao, mesesRestantes, mensalSugerido: mensalSugerido === null ? null : emReais(mensalSugerido),
+    aportes: [...m.aportes]
+      .sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : b.id - a.id))
+      .map((a) => ({ id: a.id, data: a.data, valor: emReais(a.valorCentavos), nota: a.nota })),
+  };
+}
+
+/**
+ * GET    /api/metas                       lista (concluídas por último)
+ * POST   /api/metas { nome, alvo, prazo? }
+ * PUT    /api/metas/{id} { nome, alvo, prazo? }
+ * DELETE /api/metas/{id}
+ * POST   /api/metas/{id}/aportes { valor, retirada?, data?, nota? }
+ * DELETE /api/aportes/{id}
+ */
+function metas(estado, metodo, id, corpo, hoje, subrota) {
+  if (!estado.metas) estado.metas = [];
+  const achar = () => {
+    const m = estado.metas.find((x) => x.id === id);
+    if (!m) throw naoEncontrado();
+    return m;
+  };
+  if (metodo === 'GET' && id === null) {
+    const ordem = { atrasada: 0, abaixoDoRitmo: 1, noRitmo: 2, semPrazo: 3, concluida: 4 };
+    const lista = estado.metas.map((m) => dtoMeta(m, hoje))
+      .sort((a, b) => ordem[a.situacao] - ordem[b.situacao] || porTexto(a.nome, b.nome));
+    return { status: 200, corpo: lista };
+  }
+  if (metodo === 'POST' && id === null) {
+    const dados = lerMeta(corpo);
+    if (estado.metas.some((m) => mesmoNome(m.nome, dados.nome))) throw conflito('Já existe uma meta com esse nome.');
+    estado.seq.meta = (estado.seq.meta ?? 0) + 1;
+    const m = { id: estado.seq.meta, ...dados, criadoEm: new Date(`${hoje}T12:00:00`).toISOString(), aportes: [] };
+    estado.metas.push(m);
+    return { status: 200, corpo: dtoMeta(m, hoje), alterou: true };
+  }
+  if (metodo === 'PUT' && id !== null && !subrota) {
+    const m = achar();
+    const dados = lerMeta(corpo);
+    if (estado.metas.some((x) => x.id !== id && mesmoNome(x.nome, dados.nome))) throw conflito('Já existe uma meta com esse nome.');
+    Object.assign(m, dados);
+    return { status: 200, corpo: dtoMeta(m, hoje), alterou: true };
+  }
+  if (metodo === 'DELETE' && id !== null && !subrota) {
+    achar();
+    estado.metas = estado.metas.filter((x) => x.id !== id);
+    return { status: 204, corpo: null, alterou: true };
+  }
+  if (metodo === 'POST' && id !== null && subrota === 'aportes') {
+    const m = achar();
+    const valor = Number(corpo?.valor);
+    const centavos = emCentavos(valor);
+    if (!Number.isFinite(valor) || centavos < 1 || centavos > LIMITE_MAXIMO_CENTAVOS) throw new ErroLocal('O valor deve ser maior que zero.', 400);
+    if (corpo?.retirada !== undefined && typeof corpo.retirada !== 'boolean') throw new ErroLocal('Valor inválido para "retirada".', 400);
+    const data = corpo?.data ?? hoje;
+    if (!dataValida(data)) throw new ErroLocal('Data inválida.', 400);
+    const nota = String(corpo?.nota ?? '').trim();
+    if (nota.length > 100) throw new ErroLocal('A observação deve ter no máximo 100 caracteres.', 400);
+    if (corpo?.retirada && centavos > guardadoDa(m)) throw new ErroLocal('A retirada é maior que o valor guardado na meta.', 400);
+    estado.seq.aporte = (estado.seq.aporte ?? 0) + 1;
+    m.aportes.push({ id: estado.seq.aporte, data, valorCentavos: corpo?.retirada ? -centavos : centavos, nota });
+    return { status: 200, corpo: dtoMeta(m, hoje), alterou: true };
+  }
+  return null;
+}
+
+function aportes(estado, metodo, id) {
+  if (metodo !== 'DELETE' || id === null) return null;
+  const m = (estado.metas ?? []).find((x) => x.aportes.some((a) => a.id === id));
+  if (!m) throw naoEncontrado();
+  const sem = m.aportes.filter((a) => a.id !== id);
+  if (guardadoDa({ aportes: sem }) < 0) throw new ErroLocal('Excluir este depósito deixaria a meta com saldo negativo. Exclua antes a retirada.', 400);
+  m.aportes = sem;
+  return { status: 204, corpo: null, alterou: true };
+}
+
+// ---------- Exportar planilha (CSV) ----------
+
+const csvTexto = (v) => {
+  let t = String(v ?? '');
+  // Proteção contra "injeção de fórmula": texto que começa com = + - @ vira texto puro no Excel.
+  if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+  return /[;"\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+const csvValor = (centavos) => (centavos / 100).toFixed(2).replace('.', ',');
+const dataCsv = (iso) => iso.split('-').reverse().join('/');
+
+/**
+ * Lançamentos em CSV para Excel/Planilhas em português: separador ";", vírgula decimal, datas dd/mm/aaaa, BOM
+ * (para os acentos) e quebras de linha CRLF. `de`/`ate` (aaaa-mm-dd, inclusivos) são opcionais.
+ * "Valor" tem sinal: receitas positivas, despesas negativas — dá para somar a coluna direto.
+ */
+export function gerarCsv(estado, { de = null, ate = null } = {}) {
+  const nomeCat = new Map(estado.categorias.map((c) => [c.id, c.nome]));
+  const contaPorId = new Map(estado.contas.map((c) => [c.id, c]));
+  const itens = estado.lancamentos
+    .filter((l) => (!de || l.data >= de) && (!ate || l.data <= ate))
+    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.id - b.id));
+  const linhas = [['Data', 'Tipo', 'Descrição', 'Categoria', 'Conta', 'Valor', 'Status', 'Fixa', 'Parcela', 'Fatura'].join(';')];
+  for (const l of itens) {
+    const conta = contaPorId.get(l.contaId);
+    const fatura = conta?.cartao ? faturaDaCompra(conta.cartao, l.data).mes.split('-').reverse().join('/') : '';
+    linhas.push([
+      dataCsv(l.data), l.tipo, csvTexto(l.descricao), csvTexto(nomeCat.get(l.categoriaId) ?? ''), csvTexto(conta?.nome ?? ''),
+      csvValor(l.tipo === 'Receita' ? l.valorCentavos : -l.valorCentavos),
+      l.status === 'Pendente' ? 'Pendente' : l.tipo === 'Receita' ? 'Recebido' : 'Pago',
+      l.fixa ? 'Sim' : 'Não', l.parcela ? `${l.parcela.numero}/${l.parcela.total}` : '', fatura,
+    ].join(';'));
+  }
+  return { texto: `\uFEFF${linhas.join('\r\n')}\r\n`, quantidade: itens.length };
+}
+
 // ---------- Configurações, lembretes e registro de backup ----------
 
 /** Dias entre duas datas aaaa-mm-dd (b - a). */
@@ -954,6 +1116,8 @@ export function rotear(estado, metodo, url, corpo, { agora = new Date().toISOStr
       else if (recurso === 'dashboard' && partes.length === 2) r = painel(estado, m, u.searchParams, hoje);
       else if (recurso === 'config' && partes.length === 2) r = config(estado, m, corpo);
       else if (recurso === 'cartoes') r = cartoes(estado, m, id, corpo, u.searchParams, hoje, subrota);
+      else if (recurso === 'metas') r = metas(estado, m, id, corpo, hoje, subrota);
+      else if (recurso === 'aportes' && partes.length === 3) r = aportes(estado, m, id);
       else if (recurso === 'lembretes' && partes.length === 2) r = lembretes(estado, m, u.searchParams, hoje, agora);
     }
   }
@@ -988,6 +1152,21 @@ export function validarEstado(e) {
     }
     return set;
   };
+  const metasEntrada = e.metas === undefined ? [] : e.metas; // versões anteriores não têm metas
+  if (!Array.isArray(metasEntrada)) falha('lista de metas inválida.');
+  ids(metasEntrada, 'metas');
+  const idsAporte = new Set();
+  for (const m of metasEntrada) {
+    if (typeof m.nome !== 'string' || !m.nome.trim() || m.nome.length > 60) falha('nome de meta inválido.');
+    if (!Number.isInteger(m.alvoCentavos) || m.alvoCentavos < 1) falha('valor-alvo de meta inválido.');
+    if (m.prazo !== null && m.prazo !== undefined && !dataValida(m.prazo)) falha('prazo de meta inválido.');
+    if (!Array.isArray(m.aportes)) falha('depósitos de meta inválidos.');
+    for (const a of m.aportes) {
+      if (!Number.isInteger(a?.id) || a.id <= 0 || idsAporte.has(a.id)) falha('depósito com identificador inválido ou repetido.');
+      idsAporte.add(a.id);
+      if (!dataValida(a.data) || !Number.isInteger(a.valorCentavos) || a.valorCentavos === 0) falha('depósito de meta inválido.');
+    }
+  }
   const idsCat = ids(e.categorias, 'categorias');
   const idsConta = ids(e.contas, 'contas');
   ids(e.lancamentos, 'lançamentos');
@@ -1018,6 +1197,8 @@ export function validarEstado(e) {
       categoria: Math.max(e.seq.categoria, maior(e.categorias)),
       conta: Math.max(e.seq.conta, maior(e.contas)),
       lancamento: Math.max(e.seq.lancamento, maior(e.lancamentos)),
+      meta: Math.max(Number.isInteger(e.seq.meta) ? e.seq.meta : 0, maior(metasEntrada)),
+      aporte: Math.max(Number.isInteger(e.seq.aporte) ? e.seq.aporte : 0, ...[...idsAporte], 0),
     },
     categorias: e.categorias.map((c) => ({ id: c.id, nome: c.nome.trim(), tipo: c.tipo, limiteCentavos: c.limiteCentavos })),
     contas: e.contas.map((c) => ({ id: c.id, nome: c.nome.trim(), cartao: normalizarCartao(c.cartao) })),
@@ -1027,6 +1208,11 @@ export function validarEstado(e) {
       // Backups e dados de versões anteriores não têm "fixa": contam como não fixo.
       fixa: l.fixa === true,
       parcela: normalizarParcela(l.parcela),
+    })),
+    metas: metasEntrada.map((m) => ({
+      id: m.id, nome: m.nome.trim(), alvoCentavos: m.alvoCentavos, prazo: m.prazo ?? null,
+      criadoEm: typeof m.criadoEm === 'string' ? m.criadoEm : '',
+      aportes: m.aportes.map((a) => ({ id: a.id, data: a.data, valorCentavos: a.valorCentavos, nota: typeof a.nota === 'string' ? a.nota.slice(0, 100) : '' })),
     })),
     config: normalizarConfig(e.config), // versões anteriores não têm configurações
   };

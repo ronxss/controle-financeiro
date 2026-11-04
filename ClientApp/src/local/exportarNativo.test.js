@@ -63,6 +63,6 @@ test('compartilhamento com erro de verdade: lança só se também não salvou em
   assert.deepEqual(comCopia, { salvoEm: `Documentos/Controle Financeiro/${NOME}`, compartilhado: false });
   await assert.rejects(
     exportarNoAparelho(NOME, TEXTO, plugins({ falhaDocumentos: true, share: 'erro' })),
-    /Não foi possível gerar o backup: Activity not found/,
+    /Não foi possível gerar o arquivo: Activity not found/,
   );
 });

@@ -1,14 +1,32 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, InputAdornment, LinearProgress, Paper, Skeleton, Snackbar, Stack, Table,
-  TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery,
+  Alert, Box, Button, Card, CardContent, InputAdornment, LinearProgress, Paper, Skeleton, Snackbar, Stack, Tab, Table,
+  TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography, useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { brl, parseValor } from '../utils/format.js';
+import { MODO_LOCAL } from '../modo.js';
+import MetasPainel from '../components/MetasPainel.jsx';
 
+/** Orçamento: limites por categoria e (no modo local) metas de economia, em abas. */
 export default function Orcamento() {
+  const [aba, setAba] = useState(0);
+  if (!MODO_LOCAL) return <Limites />;
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5" fontWeight={700}>Orçamento</Typography>
+      <Tabs value={aba} onChange={(_, v) => setAba(v)} variant="fullWidth" sx={{ maxWidth: 420 }}>
+        <Tab label="Limites" />
+        <Tab label="Metas" />
+      </Tabs>
+      {aba === 0 ? <Limites embutido /> : <MetasPainel />}
+    </Stack>
+  );
+}
+
+function Limites({ embutido = false }) {
   const { mes } = useMes();
   const celular = useMediaQuery(useTheme().breakpoints.down('md')); // até tablet em pé: cartões em vez de tabela
   const [itens, setItens] = useState(null);
@@ -83,7 +101,9 @@ export default function Orcamento() {
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-        <Typography variant="h5" fontWeight={700}>Orçamento mensal</Typography>
+        {embutido
+          ? <Typography fontWeight={500}>Limite por categoria</Typography>
+          : <Typography variant="h5" fontWeight={700}>Orçamento mensal</Typography>}
         <Button variant="contained" onClick={salvar} disabled={!itens || salvando || invalido} sx={{ whiteSpace: 'nowrap' }}>
           Salvar limites
         </Button>

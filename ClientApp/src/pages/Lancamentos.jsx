@@ -96,7 +96,7 @@ export default function Lancamentos() {
   };
 
   const botaoFixa = (l, pequeno) => {
-    if (!TEM_FIXAS) return null;
+    if (!TEM_FIXAS || l.parcela) return null; // parcela não pode ser fixa
     const nome = l.tipo === 'Receita' ? 'receita' : 'despesa';
     return (
     <Tooltip title={l.fixa ? 'Fixa: toque para desmarcar' : `Marcar como ${nome} fixa`}>

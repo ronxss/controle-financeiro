@@ -3,7 +3,7 @@
 // Os dados ficam SÓ no aparelho. Se o celular for perdido, formatado, ou o app/navegador for desinstalado
 // ou tiver os dados limpos, tudo se perde, a não ser que exista um backup. Por isso o menu oferece
 // "Exportar backup" e "Importar backup".
-import { montarBackup, lerBackup, hojeISO } from './engine.js';
+import { montarBackup, lerBackup, hojeISO, gerarCsv } from './engine.js';
 import { lerEstadoAtual, substituirEstado, requestLocal } from './localApi.js';
 import { Capacitor } from '@capacitor/core';
 import { exportarNoAparelho } from './exportarNativo.js';
@@ -47,24 +47,31 @@ export function mensagemExportacao({ resultado, salvoEm }) {
 
 async function gerarBackup() {
   const estado = await lerEstadoAtual();
-  const nome = `controle-financeiro-backup-${hojeISO()}.json`;
-  const texto = montarBackup(estado);
+  return entregarArquivo(`controle-financeiro-backup-${hojeISO()}.json`, montarBackup(estado), 'application/json', 'Backup do Controle Financeiro');
+}
 
+/**
+ * Entrega um arquivo de texto à pessoa, do jeito que cada lugar permite. Devolve { resultado, salvoEm }:
+ * - APK: cópia em Documentos/Controle Financeiro + folha de compartilhamento do Android;
+ * - navegador de celular: folha de compartilhamento;
+ * - computador: download (pasta Downloads).
+ */
+export async function entregarArquivo(nome, texto, tipo, titulo) {
   if (Capacitor.isNativePlatform()) {
     // Carregados só no app nativo: o PWA não precisa deles.
     const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
       import('@capacitor/filesystem'), import('@capacitor/share'),
     ]);
-    const r = await exportarNoAparelho(nome, texto, { Filesystem, Directory, Encoding, Share });
+    const r = await exportarNoAparelho(nome, texto, { Filesystem, Directory, Encoding, Share }, titulo);
     if (r.compartilhado) return { resultado: 'compartilhado', salvoEm: r.salvoEm };
     if (r.salvoEm) return { resultado: 'salvo', salvoEm: r.salvoEm };
     return { resultado: 'cancelado', salvoEm: null };
   }
 
-  const arquivo = new File([texto], nome, { type: 'application/json' });
+  const arquivo = new File([texto], nome, { type: tipo });
   if (navigator.canShare?.({ files: [arquivo] })) {
     try {
-      await navigator.share({ files: [arquivo], title: 'Backup do Controle Financeiro' });
+      await navigator.share({ files: [arquivo], title: titulo });
       return { resultado: 'compartilhado', salvoEm: null };
     } catch (e) {
       if (e?.name === 'AbortError') return { resultado: 'cancelado', salvoEm: null }; // fechou a folha
@@ -73,6 +80,15 @@ async function gerarBackup() {
   }
   baixar(arquivo);
   return { resultado: 'baixado', salvoEm: null };
+}
+
+/** Planilha (CSV) dos lançamentos do período. `de`/`ate` em aaaa-mm-dd (opcionais). */
+export async function exportarCsv({ de = null, ate = null, sufixo = 'tudo' } = {}) {
+  const estado = await lerEstadoAtual();
+  const { texto, quantidade } = gerarCsv(estado, { de, ate });
+  if (quantidade === 0) return { resultado: 'vazio', salvoEm: null, quantidade };
+  const r = await entregarArquivo(`controle-financeiro-${sufixo}.csv`, texto, 'text/csv', 'Planilha do Controle Financeiro');
+  return { ...r, quantidade };
 }
 
 /** Valida o texto do backup (lança ErroLocal se estiver errado) sem alterar nada. Útil antes de pedir confirmação. */
