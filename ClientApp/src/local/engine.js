@@ -41,7 +41,7 @@ export function criarEstadoInicial() {
   for (const nome of CATEGORIAS_DESPESA) {
     estado.categorias.push({ id: ++estado.seq.categoria, nome, tipo: 'Despesa', limiteCentavos: 0 });
   }
-  for (const nome of CONTAS_PADRAO) estado.contas.push({ id: ++estado.seq.conta, nome });
+  for (const nome of CONTAS_PADRAO) estado.contas.push({ id: ++estado.seq.conta, nome, cartao: null });
   estado.config = configPadrao();
   return estado;
 }
@@ -112,6 +112,57 @@ function lerMes(mes, hoje) {
 
 const doMes = (estado, mes) => estado.lancamentos.filter((l) => l.data.slice(0, 7) === mes);
 
+/** 'aaaa-mm-dd' + n dias. */
+function somarDias(data, n) {
+  const d = new Date(Date.UTC(Number(data.slice(0, 4)), Number(data.slice(5, 7)) - 1, Number(data.slice(8, 10)) + n));
+  return `${d.getUTCFullYear()}-${dois(d.getUTCMonth() + 1)}-${dois(d.getUTCDate())}`;
+}
+
+/** Dia `dia` do mês `mes`, ou o último dia se o mês for menor (31 -> 28/fev). */
+const diaDoMes = (mes, dia) => `${mes}-${dois(Math.min(dia, diasNoMes(mes)))}`;
+
+// ---------- Cartão de crédito ----------
+//
+// Uma conta pode ser um cartão: { fechamento, vencimento } (dias de 1 a 31; em meses menores vale o último dia).
+// Compras feitas ATÉ o dia do fechamento (inclusive) entram na fatura que fecha naquele mês; depois dele, na do
+// mês seguinte. A fatura vence no dia de vencimento seguinte ao fechamento. Cada fatura é identificada pelo
+// MÊS DO VENCIMENTO ('aaaa-mm'), que é o mês em que o dinheiro sai.
+
+function datasDaFatura(cartao, mesFechamento) {
+  const fechamento = diaDoMes(mesFechamento, cartao.fechamento);
+  const mesVencimento = cartao.vencimento > cartao.fechamento ? mesFechamento : somarMeses(mesFechamento, 1);
+  return { mes: mesVencimento, fechamento, vencimento: diaDoMes(mesVencimento, cartao.vencimento) };
+}
+
+/** Fatura em que cai uma compra feita em `data`. */
+export function faturaDaCompra(cartao, data) {
+  const mesCompra = data.slice(0, 7);
+  const mesFechamento = data <= diaDoMes(mesCompra, cartao.fechamento) ? mesCompra : somarMeses(mesCompra, 1);
+  return datasDaFatura(cartao, mesFechamento);
+}
+
+/** Fatura que vence no mês `mes`, com o período de compras que ela cobre. */
+export function faturaDoMes(cartao, mes) {
+  const mesFechamento = cartao.vencimento > cartao.fechamento ? mes : somarMeses(mes, -1);
+  const f = datasDaFatura(cartao, mesFechamento);
+  const anterior = datasDaFatura(cartao, somarMeses(mesFechamento, -1));
+  return { ...f, inicio: somarDias(anterior.fechamento, 1) };
+}
+
+const diaCartaoValido = (v) => Number.isInteger(v) && v >= 1 && v <= 31;
+const MSG_CARTAO = 'Informe o dia de fechamento e o de vencimento do cartão (1 a 31).';
+
+/** Corpo da API: undefined = não mexe; null = não é cartão; objeto = valida. */
+function lerCartao(valor) {
+  if (valor === undefined) return undefined;
+  if (valor === null) return null;
+  if (typeof valor !== 'object' || !diaCartaoValido(valor.fechamento) || !diaCartaoValido(valor.vencimento)) {
+    throw new ErroLocal(MSG_CARTAO, 400);
+  }
+  return { fechamento: valor.fechamento, vencimento: valor.vencimento };
+}
+const cartaoDaConta = (estado, contaId) => estado.contas.find((c) => c.id === contaId)?.cartao ?? null;
+
 /** Soma `delta` meses a "aaaa-mm" (aceita negativos e atravessa a virada do ano). */
 export function somarMeses(mes, delta) {
   const [a, m] = mes.split('-').map(Number);
@@ -162,6 +213,9 @@ function dtoLancamento(estado, l) {
     id: l.id, data: l.data, tipo: l.tipo, categoriaId: l.categoriaId, categoria: cat?.nome ?? '',
     descricao: l.descricao, contaId: l.contaId, conta: conta?.nome ?? '', valor: emReais(l.valorCentavos), status: l.status,
     fixa: l.fixa === true,
+    parcela: l.parcela ? { ...l.parcela } : null,
+    // Mês de vencimento da fatura, quando a conta é um cartão de crédito.
+    fatura: conta?.cartao ? faturaDaCompra(conta.cartao, l.data).mes : null,
   };
 }
 
@@ -212,25 +266,30 @@ function categorias(estado, metodo, id, corpo) {
 
 // ---------- Contas ----------
 
+const dtoConta = (c) => ({ id: c.id, nome: c.nome, cartao: c.cartao ? { ...c.cartao } : null });
+
 function contas(estado, metodo, id, corpo) {
   if (metodo === 'GET' && id === null) {
-    return { status: 200, corpo: [...estado.contas].sort((a, b) => porTexto(a.nome, b.nome)).map((c) => ({ id: c.id, nome: c.nome })) };
+    return { status: 200, corpo: [...estado.contas].sort((a, b) => porTexto(a.nome, b.nome)).map(dtoConta) };
   }
 
   if (metodo === 'POST' && id === null) {
     const nome = nomeObrigatorio(corpo);
+    const cartao = lerCartao(corpo?.cartao) ?? null;
     if (estado.contas.some((c) => mesmoNome(c.nome, nome))) throw conflito('Já existe uma conta com esse nome.');
-    const c = { id: ++estado.seq.conta, nome };
+    const c = { id: ++estado.seq.conta, nome, cartao };
     estado.contas.push(c);
-    return { status: 200, corpo: { id: c.id, nome: c.nome }, alterou: true };
+    return { status: 200, corpo: dtoConta(c), alterou: true };
   }
 
   if (metodo === 'PUT' && id !== null) {
     const nome = nomeObrigatorio(corpo);
+    const cartao = lerCartao(corpo?.cartao);
     const c = estado.contas.find((x) => x.id === id);
     if (!c) throw naoEncontrado();
     if (estado.contas.some((x) => x.id !== id && mesmoNome(x.nome, nome))) throw conflito('Já existe uma conta com esse nome.');
     c.nome = nome;
+    if (cartao !== undefined) c.cartao = cartao; // cliente que não manda "cartao" não apaga a configuração
     return { status: 204, corpo: null, alterou: true };
   }
 
@@ -251,6 +310,17 @@ function contas(estado, metodo, id, corpo) {
 function lerFixa(valor, atual) {
   if (valor === undefined || valor === null) return atual === true;
   if (typeof valor !== 'boolean') throw new ErroLocal('Valor inválido para lançamento fixo.', 400);
+  return valor;
+}
+
+export const MAX_PARCELAS = 60;
+
+/** Quantidade de parcelas: ausente = 1 (à vista). */
+function lerParcelas(valor) {
+  if (valor === undefined || valor === null || valor === 1) return 1;
+  if (!Number.isInteger(valor) || valor < 1 || valor > MAX_PARCELAS) {
+    throw new ErroLocal(`Informe de 1 a ${MAX_PARCELAS} parcelas.`, 400);
+  }
   return valor;
 }
 
@@ -313,16 +383,43 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
 
   if (metodo === 'POST' && id === null) {
     const dados = lerLancamento(estado, corpo);
-    const l = { id: ++estado.seq.lancamento, ...dados, criadoEm: new Date().toISOString() };
-    estado.lancamentos.push(l);
-    return { status: 200, corpo: { id: l.id }, alterou: true };
+    const n = lerParcelas(corpo?.parcelas);
+    if (n === 1) {
+      const l = { id: ++estado.seq.lancamento, ...dados, parcela: null, criadoEm: new Date().toISOString() };
+      estado.lancamentos.push(l);
+      return { status: 200, corpo: { id: l.id }, alterou: true };
+    }
+    if (dados.fixa) throw new ErroLocal('Um lançamento parcelado não pode ser fixo.', 400);
+    if (dados.valorCentavos < n) throw new ErroLocal('O valor total é pequeno demais para tantas parcelas.', 400);
+
+    // O valor informado é o TOTAL. Divide em centavos; a diferença do arredondamento fica na 1ª parcela.
+    const base = Math.floor(dados.valorCentavos / n);
+    const resto = dados.valorCentavos - base * n;
+    const dia = Number(dados.data.slice(8, 10));
+    const grupo = estado.seq.lancamento + 1;
+    const criadoEm = new Date().toISOString();
+    const ids = [];
+    for (let k = 0; k < n; k += 1) {
+      const l = {
+        id: ++estado.seq.lancamento, ...dados,
+        data: diaDoMes(somarMeses(dados.data.slice(0, 7), k), dia),
+        valorCentavos: base + (k === 0 ? resto : 0),
+        status: k === 0 ? dados.status : 'Pendente',
+        parcela: { grupo, numero: k + 1, total: n },
+        criadoEm,
+      };
+      estado.lancamentos.push(l);
+      ids.push(l.id);
+    }
+    return { status: 200, corpo: { id: ids[0], ids, parcelas: n }, alterou: true };
   }
 
   if (metodo === 'PUT' && id !== null && !subrota) {
     const l = estado.lancamentos.find((x) => x.id === id);
     if (!l) throw naoEncontrado();
     const dados = lerLancamento(estado, corpo, l);
-    Object.assign(l, dados);
+    if (l.parcela && dados.fixa) throw new ErroLocal('Um lançamento parcelado não pode ser fixo.', 400);
+    Object.assign(l, dados); // a parcela (1/10...) não muda ao editar: cada parcela é editada sozinha
     return { status: 204, corpo: null, alterou: true };
   }
 
@@ -338,6 +435,7 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
     if (typeof corpo?.fixa !== 'boolean') throw new ErroLocal('Informe se o lançamento é fixo (true ou false).', 400);
     const l = estado.lancamentos.find((x) => x.id === id);
     if (!l) throw naoEncontrado();
+    if (l.parcela && corpo.fixa) throw new ErroLocal('Um lançamento parcelado não pode ser fixo.', 400);
     l.fixa = lerFixa(corpo.fixa, l.fixa);
     return { status: 204, corpo: null, alterou: true };
   }
@@ -345,8 +443,20 @@ function lancamentos(estado, metodo, id, corpo, consulta, hoje, subrota) {
   if (metodo === 'DELETE' && id !== null && !subrota) {
     const l = estado.lancamentos.find((x) => x.id === id);
     if (!l) throw naoEncontrado();
-    estado.lancamentos = estado.lancamentos.filter((x) => x.id !== id);
-    return { status: 204, corpo: null, alterou: true };
+    // ?parcelas=seguintes (esta e as próximas) | todas. Sem o parâmetro, só esta.
+    const modo = consulta.get('parcelas');
+    if (modo !== null && !['seguintes', 'todas'].includes(modo)) {
+      throw new ErroLocal('Valor de "parcelas" inválido. Use seguintes ou todas.', 400);
+    }
+    if (modo === null) {
+      estado.lancamentos = estado.lancamentos.filter((x) => x.id !== id);
+      return { status: 204, corpo: null, alterou: true };
+    }
+    const sai = (x) => x.id === id || (l.parcela && x.parcela?.grupo === l.parcela.grupo
+      && (modo === 'todas' || x.parcela.numero >= l.parcela.numero));
+    const antes = estado.lancamentos.length;
+    estado.lancamentos = estado.lancamentos.filter((x) => !sai(x));
+    return { status: 200, corpo: { removidos: antes - estado.lancamentos.length }, alterou: true };
   }
   return null;
 }
@@ -633,6 +743,97 @@ function painel(estado, metodo, consulta, hoje) {
   };
 }
 
+// ---------- Cartões: faturas ----------
+
+function resumoFatura(estado, conta, mes, hoje) {
+  const f = faturaDoMes(conta.cartao, mes);
+  const doCartao = estado.lancamentos.filter((l) => l.contaId === conta.id && faturaDaCompra(conta.cartao, l.data).mes === mes);
+  // Despesas somam; receitas no cartão (estorno, cashback) abatem.
+  const sinal = (l) => (l.tipo === 'Despesa' ? l.valorCentavos : -l.valorCentavos);
+  const total = doCartao.reduce((t, l) => t + sinal(l), 0);
+  const pendente = doCartao.filter((l) => l.status === 'Pendente').reduce((t, l) => t + sinal(l), 0);
+  let situacao;
+  if (doCartao.length === 0) situacao = 'vazia';
+  else if (!doCartao.some((l) => l.status === 'Pendente')) situacao = 'paga';
+  else if (hoje <= f.fechamento) situacao = 'aberta';
+  else if (hoje > f.vencimento) situacao = 'vencida';
+  else situacao = 'fechada';
+  const itens = [...doCartao]
+    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.id - b.id))
+    .map((l) => dtoLancamento(estado, l));
+  return {
+    contaId: conta.id, nome: conta.nome, fechamentoDia: conta.cartao.fechamento, vencimentoDia: conta.cartao.vencimento,
+    mes, inicio: f.inicio, fechamento: f.fechamento, vencimento: f.vencimento,
+    total: emReais(total), pago: emReais(total - pendente), pendente: emReais(pendente),
+    quantidade: doCartao.length, situacao, itens,
+  };
+}
+
+/**
+ * GET  /api/cartoes?mes=aaaa-mm              faturas que VENCEM no mês, uma por cartão
+ * POST /api/cartoes/{contaId}/pagar { mes }  marca como pagos todos os lançamentos pendentes da fatura
+ */
+function cartoes(estado, metodo, id, corpo, consulta, hoje, subrota) {
+  if (metodo === 'GET' && id === null && !subrota) {
+    const mes = lerMes(consulta.get('mes'), hoje);
+    const lista = estado.contas.filter((c) => c.cartao).sort((a, b) => porTexto(a.nome, b.nome));
+    return { status: 200, corpo: lista.map((c) => resumoFatura(estado, c, mes, hoje)) };
+  }
+  if (metodo === 'POST' && id !== null && subrota === 'pagar') {
+    const conta = estado.contas.find((c) => c.id === id);
+    if (!conta) throw naoEncontrado();
+    if (!conta.cartao) throw new ErroLocal('Esta conta não é um cartão de crédito.', 400);
+    const mes = lerMes(corpo?.mes, hoje);
+    let pagos = 0;
+    for (const l of estado.lancamentos) {
+      if (l.contaId === id && l.status === 'Pendente' && faturaDaCompra(conta.cartao, l.data).mes === mes) {
+        l.status = 'PagoRecebido';
+        pagos += 1;
+      }
+    }
+    return { status: 200, corpo: { pagos, fatura: resumoFatura(estado, conta, mes, hoje) }, alterou: pagos > 0 };
+  }
+  return null;
+}
+
+/**
+ * Tudo o que está PENDENTE e tem data para vencer, numa lista só:
+ * - lançamentos comuns, pela própria data;
+ * - compras no cartão NÃO aparecem uma a uma: viram a FATURA, pela data de vencimento dela.
+ * Usado pelos avisos do Resumo e pelas notificações. Valores em centavos.
+ */
+export function vencimentosPendentes(estado) {
+  const nomeCat = new Map(estado.categorias.map((c) => [c.id, c.nome]));
+  const contaPorId = new Map(estado.contas.map((c) => [c.id, c]));
+  const itens = [];
+  const faturas = new Map();
+  for (const l of estado.lancamentos) {
+    if (l.status !== 'Pendente') continue;
+    const conta = contaPorId.get(l.contaId);
+    if (conta?.cartao) {
+      const f = faturaDaCompra(conta.cartao, l.data);
+      const chave = `${conta.id}|${f.mes}`;
+      const atual = faturas.get(chave) ?? { conta, f, centavos: 0 };
+      atual.centavos += l.tipo === 'Despesa' ? l.valorCentavos : -l.valorCentavos;
+      faturas.set(chave, atual);
+    } else {
+      itens.push({
+        id: l.id, chave: `l${l.id}`, data: l.data, tipo: l.tipo, descricao: l.descricao,
+        categoria: nomeCat.get(l.categoriaId) ?? '', valorCentavos: l.valorCentavos, fixa: l.fixa === true,
+        contaId: l.contaId, fatura: null,
+      });
+    }
+  }
+  for (const { conta, f, centavos } of faturas.values()) {
+    if (centavos <= 0) continue; // estornos maiores que as compras: nada a pagar
+    itens.push({
+      id: null, chave: `f${conta.id}-${f.mes}`, data: f.vencimento, tipo: 'Fatura', descricao: `Fatura ${conta.nome}`,
+      categoria: 'Cartão de crédito', valorCentavos: centavos, fixa: false, contaId: conta.id, fatura: f.mes,
+    });
+  }
+  return itens.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.chave < b.chave ? -1 : 1));
+}
+
 // ---------- Configurações, lembretes e registro de backup ----------
 
 /** Dias entre duas datas aaaa-mm-dd (b - a). */
@@ -688,19 +889,14 @@ function lembretes(estado, metodo, consulta, hoje, agora) {
   const dias = diasTexto === null ? 7 : Number(diasTexto);
   if (dias > 60) throw new ErroLocal('Valor de "dias" inválido. Use de 0 a 60.', 400);
 
-  const nomeCat = new Map(estado.categorias.map((c) => [c.id, c.nome]));
-  const item = (l) => ({
-    id: l.id, data: l.data, tipo: l.tipo, descricao: l.descricao, categoria: nomeCat.get(l.categoriaId) ?? '',
-    valor: emReais(l.valorCentavos), valorCentavos: l.valorCentavos, fixa: l.fixa === true, dias: diasEntre(hoje, l.data),
-  });
-  const pendentes = estado.lancamentos
-    .filter((l) => l.status === 'Pendente')
-    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.id - b.id))
-    .map(item);
+  const pendentes = vencimentosPendentes(estado).map((x) => ({ ...x, valor: emReais(x.valorCentavos), dias: diasEntre(hoje, x.data) }));
   const atrasados = pendentes.filter((x) => x.dias < 0);
   const proximos = pendentes.filter((x) => x.dias >= 0 && x.dias <= dias);
-  const soma = (lista, tipo) => emReais(lista.filter((x) => x.tipo === tipo).reduce((t, x) => t + x.valorCentavos, 0));
-  const limpar = (lista) => lista.map(({ valorCentavos, ...resto }) => resto);
+  // Faturas de cartão contam como despesa (é dinheiro saindo).
+  const soma = (lista, tipo) => emReais(lista
+    .filter((x) => (tipo === 'Despesa' ? x.tipo !== 'Receita' : x.tipo === 'Receita'))
+    .reduce((t, x) => t + x.valorCentavos, 0));
+  const limpar = (lista) => lista.map(({ valorCentavos, chave, ...resto }) => ({ ...resto, chave }));
 
   const cfg = estado.config ?? configPadrao();
   const instantes = [cfg.backup.ultimo, cfg.backup.ultimoAutomatico].filter(Boolean).sort();
@@ -757,6 +953,7 @@ export function rotear(estado, metodo, url, corpo, { agora = new Date().toISOStr
       else if (recurso === 'orcamento' && partes.length === 2) r = orcamento(estado, m, corpo, u.searchParams, hoje);
       else if (recurso === 'dashboard' && partes.length === 2) r = painel(estado, m, u.searchParams, hoje);
       else if (recurso === 'config' && partes.length === 2) r = config(estado, m, corpo);
+      else if (recurso === 'cartoes') r = cartoes(estado, m, id, corpo, u.searchParams, hoje, subrota);
       else if (recurso === 'lembretes' && partes.length === 2) r = lembretes(estado, m, u.searchParams, hoje, agora);
     }
   }
@@ -768,6 +965,14 @@ export function rotear(estado, metodo, url, corpo, { agora = new Date().toISOStr
 // ---------- Backup ----------
 
 /** Confere se um objeto é um estado íntegro (formato, tipos e referências entre as tabelas). */
+// Campos novos lidos com tolerância (dados e backups antigos não os têm): inválido vira "não tem".
+const normalizarCartao = (c) =>
+  c && diaCartaoValido(c.fechamento) && diaCartaoValido(c.vencimento) ? { fechamento: c.fechamento, vencimento: c.vencimento } : null;
+const normalizarParcela = (p) =>
+  p && Number.isInteger(p.grupo) && p.grupo > 0 && Number.isInteger(p.total) && p.total >= 2 && p.total <= MAX_PARCELAS
+  && Number.isInteger(p.numero) && p.numero >= 1 && p.numero <= p.total
+    ? { grupo: p.grupo, numero: p.numero, total: p.total } : null;
+
 export function validarEstado(e) {
   const falha = (msg) => { throw new ErroLocal(`Backup inválido: ${msg}`, 400); };
   if (!e || typeof e !== 'object') falha('formato desconhecido.');
@@ -815,12 +1020,13 @@ export function validarEstado(e) {
       lancamento: Math.max(e.seq.lancamento, maior(e.lancamentos)),
     },
     categorias: e.categorias.map((c) => ({ id: c.id, nome: c.nome.trim(), tipo: c.tipo, limiteCentavos: c.limiteCentavos })),
-    contas: e.contas.map((c) => ({ id: c.id, nome: c.nome.trim() })),
+    contas: e.contas.map((c) => ({ id: c.id, nome: c.nome.trim(), cartao: normalizarCartao(c.cartao) })),
     lancamentos: e.lancamentos.map((l) => ({
       id: l.id, data: l.data, tipo: l.tipo, categoriaId: l.categoriaId, descricao: l.descricao.trim(),
       contaId: l.contaId, valorCentavos: l.valorCentavos, status: l.status, criadoEm: typeof l.criadoEm === 'string' ? l.criadoEm : '',
       // Backups e dados de versões anteriores não têm "fixa": contam como não fixo.
       fixa: l.fixa === true,
+      parcela: normalizarParcela(l.parcela),
     })),
     config: normalizarConfig(e.config), // versões anteriores não têm configurações
   };

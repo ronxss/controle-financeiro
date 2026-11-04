@@ -59,7 +59,7 @@ test('lançamento: cria, lista no formato da API e devolve só o id no POST', ()
   assert.deepEqual(item, {
     id: criado.id, data: '2026-11-10', tipo: 'Despesa', categoriaId: idCategoria(e, 'Alimentação'), categoria: 'Alimentação',
     descricao: 'Mercado', contaId: idConta(e, 'Conta corrente'), conta: 'Conta corrente', valor: 150.9, status: 'PagoRecebido',
-    fixa: false,
+    fixa: false, parcela: null, fatura: null,
   });
 });
 
@@ -251,7 +251,7 @@ test('contas: CRUD com as mesmas regras e mensagens', () => {
 
   falha(() => api(e, 'POST', '/api/contas', { nome: 'DINHEIRO' }), 409, 'Já existe uma conta com esse nome.');
   const nova = api(e, 'POST', '/api/contas', { nome: 'Nubank' });
-  assert.deepEqual(nova, { id: nova.id, nome: 'Nubank' });
+  assert.deepEqual(nova, { id: nova.id, nome: 'Nubank', cartao: null });
   api(e, 'PUT', `/api/contas/${nova.id}`, { nome: 'Nubank Roxinho' });
   assert.equal(api(e, 'GET', '/api/contas').some((c) => c.nome === 'Nubank Roxinho'), true);
 

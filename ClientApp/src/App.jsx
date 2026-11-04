@@ -11,6 +11,7 @@ import Resumo from './pages/Resumo.jsx';
 import Lancamentos from './pages/Lancamentos.jsx';
 import Orcamento from './pages/Orcamento.jsx';
 import Cadastros from './pages/Cadastros.jsx';
+import Cartoes from './pages/Cartoes.jsx';
 
 function Conteudo() {
   const { usuario, carregando } = useAuth();
@@ -32,6 +33,7 @@ function Conteudo() {
           <Route path="/lancamentos" element={<Lancamentos />} />
           <Route path="/orcamento" element={<Orcamento />} />
           <Route path="/cadastros" element={<Cadastros />} />
+          {MODO_LOCAL && <Route path="/cartoes" element={<Cartoes />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

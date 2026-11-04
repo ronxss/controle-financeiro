@@ -153,6 +153,13 @@ No app local (PWA/APK):
 - **Resumo**: além dos totais, mostra orçamento total e por categoria (atenção a partir de 80% do limite, estourado acima de 100%), receitas fixas × despesas fixas (quanto sobra e quanto das receitas fixas fica comprometido), despesas fixas × variáveis, evolução de 6 meses, ritmo/projeção do mês, comparação com o mês anterior e as 5 maiores despesas. Despesas pagas contam como realizado; as pendentes aparecem à parte.
 - Backups antigos continuam válidos (lançamentos sem o campo valem como não fixos). Isso existe só no modo local; o servidor em C# não mudou.
 
+### Compras parceladas e cartão de crédito
+
+- **Parcelar**: no formulário de despesa, escolha "2x" a "48x" e diga se o valor digitado é o total ou o de cada parcela. São criados lançamentos ligados (1/10, 2/10…), um por mês, no mesmo dia (31 vira o último dia em meses menores); a soma bate com o total ao centavo. Só a 1ª segue o status escolhido; as outras ficam pendentes. Ao excluir uma parcela: só ela, ela e as seguintes, ou todas.
+- **Cartão de crédito**: em *Cadastros → Contas*, marque a conta como cartão e informe os dias de fechamento e vencimento. Compras até o fechamento (inclusive) entram na fatura daquele ciclo; a fatura é identificada pelo mês em que vence.
+- **Tela Cartões**: faturas que vencem no mês selecionado (total, pago, a pagar, situação: aberta, fechada, vencida, paga) e o botão **Pagar fatura**, que marca como pagos todos os pendentes dela. Estornos (receita no cartão) abatem do total.
+- Nos avisos e notificações, compras no cartão não aparecem uma a uma: aparece a **fatura**, pela data de vencimento.
+
 ### Lembretes e backup
 
 Menu do usuário → **Lembretes e backup**:

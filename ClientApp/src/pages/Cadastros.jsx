@@ -9,6 +9,7 @@ import { api } from '../api.js';
 import { useCadastros } from '../hooks.js';
 import NomeDialog from '../components/NomeDialog.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { MODO_LOCAL } from '../modo.js';
 
 /** Equivale à aba "Listas" da planilha: categorias e contas editáveis. */
 export default function Cadastros() {
@@ -23,8 +24,10 @@ export default function Cadastros() {
   const base = ehCategoria ? '/api/categorias' : '/api/contas';
   const rotulo = ehCategoria ? 'categoria' : 'conta';
 
-  const salvar = async ({ nome, tipo }) => {
-    const corpo = ehCategoria ? { nome, tipo } : { nome };
+  const salvar = async ({ nome, tipo, cartao }) => {
+    let corpo = { nome };
+    if (ehCategoria) corpo = { nome, tipo };
+    else if (MODO_LOCAL) corpo = { nome, cartao }; // cartão de crédito existe só no modo local
     if (dialog.item) await api.put(`${base}/${dialog.item.id}`, corpo);
     else await api.post(base, corpo);
     await recarregar();
@@ -43,7 +46,7 @@ export default function Cadastros() {
     }
   };
 
-  const linha = (item, extra) => (
+  const linha = (item, extra, secundario) => (
     <ListItem
       key={item.id} divider
       secondaryAction={
@@ -53,7 +56,7 @@ export default function Cadastros() {
         </>
       }
     >
-      <ListItemText primary={item.nome} sx={{ overflowWrap: 'anywhere', pr: 1 }} />
+      <ListItemText primary={item.nome} secondary={secundario} sx={{ overflowWrap: 'anywhere', pr: 1 }} />
       {extra}
     </ListItem>
   );
@@ -93,13 +96,16 @@ export default function Cadastros() {
               </Box>
             ))
           ) : (
-            <List disablePadding>{contas.map((c) => linha(c))}</List>
+            <List disablePadding>
+              {contas.map((c) => linha(c, null, c.cartao
+                ? `Cartão de crédito · fecha dia ${c.cartao.fechamento}, vence dia ${c.cartao.vencimento}` : null))}
+            </List>
           )}
         </CardContent>
       </Card>
 
       <NomeDialog
-        open={dialog.aberto} comTipo={ehCategoria}
+        open={dialog.aberto} comTipo={ehCategoria} comCartao={MODO_LOCAL && !ehCategoria}
         titulo={`${dialog.item ? 'Editar' : 'Nova'} ${rotulo}`}
         valorInicial={dialog.item} onClose={() => setDialog({ aberto: false, item: null })} onSalvar={salvar}
       />
