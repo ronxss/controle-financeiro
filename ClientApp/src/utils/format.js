@@ -36,3 +36,12 @@ export const parseValor = (texto) => {
   return /^\d+(\.\d{1,2})?$/.test(normalizado) ? Number(normalizado) : NaN;
 };
 
+/** 'aaaa-mm' -> 'jan/26' (rótulo curto para gráficos). */
+export const rotuloMesCurto = (mes) => {
+  const [a, m] = mes.split('-').map(Number);
+  const mesTxt = new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  return `${mesTxt}/${String(a).slice(2)}`;
+};
+
+/** 12.34 -> '12%'  (sem casas decimais). */
+export const pct = (v) => `${Math.round(v ?? 0)}%`;

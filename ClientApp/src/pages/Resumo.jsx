@@ -9,6 +9,8 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { brl } from '../utils/format.js';
+import { TEM_FIXAS } from '../modo.js';
+import PainelResumo from '../components/PainelResumo.jsx';
 
 function Indicador({ titulo, valor, icone, cor }) {
   return (
@@ -85,6 +87,8 @@ export default function Resumo() {
           </Stack>
         </CardContent>
       </Card>
+
+      {TEM_FIXAS && <PainelResumo mes={mes} />}
     </Stack>
   );
 }

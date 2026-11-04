@@ -6,6 +6,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { api } from '../api.js';
 import { dataPadrao, parseValor } from '../utils/format.js';
+import { TEM_FIXAS } from '../modo.js';
 
 /** Formulário de registro: um único passo, com os mesmos campos da aba "Lançamentos" da planilha. */
 export default function LancamentoDialog({ open, item, categorias, contas, mes, onClose, onSaved }) {
@@ -30,8 +31,9 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
             contaId: item.contaId,
             data: item.data,
             pago: item.status === 'PagoRecebido',
+            fixa: item.fixa === true,
           }
-        : { tipo: 'Despesa', valor: '', descricao: '', categoriaId: '', contaId: contas[0]?.id ?? '', data: dataPadrao(mes), pago: true }
+        : { tipo: 'Despesa', valor: '', descricao: '', categoriaId: '', contaId: contas[0]?.id ?? '', data: dataPadrao(mes), pago: true, fixa: false }
     );
   }, [open, item]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -59,6 +61,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
       valor,
       status: f.pago ? 'PagoRecebido' : 'Pendente',
     };
+    if (TEM_FIXAS) payload.fixa = f.tipo === 'Despesa' && f.fixa === true;
 
     setSalvando(true);
     try {
@@ -88,7 +91,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
 
           <ToggleButtonGroup
             exclusive fullWidth value={f.tipo}
-            onChange={(_, v) => v && setF((p) => ({ ...p, tipo: v, categoriaId: '' }))}
+            onChange={(_, v) => v && setF((p) => ({ ...p, tipo: v, categoriaId: '', fixa: v === 'Receita' ? false : p.fixa }))}
           >
             <ToggleButton value="Despesa" color="error">Despesa</ToggleButton>
             <ToggleButton value="Receita" color="success">Receita</ToggleButton>
@@ -125,6 +128,13 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
               label={f.pago ? `Já ${verbo}` : 'Pendente'}
             />
           </Stack>
+
+          {TEM_FIXAS && f.tipo === 'Despesa' && (
+            <FormControlLabel
+              control={<Switch checked={f.fixa} onChange={(e) => setF((p) => ({ ...p, fixa: e.target.checked }))} />}
+              label="Despesa fixa (repete todo mês)"
+            />
+          )}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 'max(16px, env(safe-area-inset-bottom))', flexWrap: 'wrap', gap: 0.5 }}>

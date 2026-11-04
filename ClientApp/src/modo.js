@@ -5,3 +5,6 @@
 //   funciona offline. É o modo do PWA e do APK Android. Ativado por `npm run build:mobile`
 //   (que carrega o arquivo .env.mobile com VITE_MODO=local).
 export const MODO_LOCAL = import.meta.env.VITE_MODO === 'local';
+
+// Despesas fixas e painel de métricas existem só no modo local (o servidor em C# não as conhece).
+export const TEM_FIXAS = MODO_LOCAL;
