@@ -22,7 +22,9 @@ import { mesAtual, moverMes, rotuloMes } from '../utils/format.js';
 import SenhaDialog from './SenhaDialog.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import { MODO_LOCAL } from '../modo.js';
-import { conferirBackup, exportarBackup, importarBackup } from '../local/backup.js';
+import { conferirBackup, exportarBackup, importarBackup, mensagemExportacao } from '../local/backup.js';
+import ConfigAparelhoDialog from './ConfigAparelhoDialog.jsx';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 
 const LARGURA = 220;
 const ITENS = [
@@ -41,6 +43,7 @@ export default function Layout({ children }) {
   const { mes, setMes } = useMes();
   const [ancora, setAncora] = useState(null);
   const [senhaAberta, setSenhaAberta] = useState(false);
+  const [configAberta, setConfigAberta] = useState(false);
 
   // Backup (só no modo local, onde os dados existem apenas no aparelho).
   const [aviso, setAviso] = useState('');
@@ -51,13 +54,7 @@ export default function Layout({ children }) {
   const aoExportar = async () => {
     setAncora(null);
     try {
-      const { resultado, salvoEm } = await exportarBackup();
-      const cuidado = 'O arquivo não é criptografado: guarde-o em lugar seguro.';
-      const copia = salvoEm ? `Cópia salva em ${salvoEm}. ` : '';
-      if (resultado === 'baixado') setAviso(`Backup salvo na pasta Downloads. ${cuidado}`);
-      else if (resultado === 'compartilhado') setAviso(`Backup pronto. ${copia}${cuidado}`);
-      else if (resultado === 'salvo') setAviso(`${copia}${cuidado}`);
-      else setAviso('Exportação cancelada. Nenhum arquivo foi salvo.');
+      setAviso(mensagemExportacao(await exportarBackup()));
     } catch (e) {
       setAviso(e.message || 'Não foi possível gerar o backup.');
     }
@@ -135,6 +132,11 @@ export default function Layout({ children }) {
               </MenuItem>
             )}
             {MODO_LOCAL && (
+              <MenuItem onClick={() => { setAncora(null); setConfigAberta(true); }}>
+                <ListItemIcon><NotificationsIcon fontSize="small" /></ListItemIcon>Lembretes e backup
+              </MenuItem>
+            )}
+            {MODO_LOCAL && (
               <MenuItem onClick={aoExportar}>
                 <ListItemIcon><FileDownloadIcon fontSize="small" /></ListItemIcon>Exportar backup
               </MenuItem>
@@ -202,6 +204,7 @@ export default function Layout({ children }) {
       )}
 
       <SenhaDialog open={senhaAberta} onClose={() => setSenhaAberta(false)} />
+      {MODO_LOCAL && <ConfigAparelhoDialog open={configAberta} onClose={() => setConfigAberta(false)} onExportar={aoExportar} />}
 
       {MODO_LOCAL && (
         <input ref={seletorArquivo} type="file" accept="application/json,.json" hidden onChange={aoEscolherArquivo} />

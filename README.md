@@ -153,6 +153,18 @@ No app local (PWA/APK):
 - **Resumo**: além dos totais, mostra orçamento total e por categoria (atenção a partir de 80% do limite, estourado acima de 100%), receitas fixas × despesas fixas (quanto sobra e quanto das receitas fixas fica comprometido), despesas fixas × variáveis, evolução de 6 meses, ritmo/projeção do mês, comparação com o mês anterior e as 5 maiores despesas. Despesas pagas contam como realizado; as pendentes aparecem à parte.
 - Backups antigos continuam válidos (lançamentos sem o campo valem como não fixos). Isso existe só no modo local; o servidor em C# não mudou.
 
+### Lembretes e backup
+
+Menu do usuário → **Lembretes e backup**:
+
+- **Lembretes de vencimento (APK)**: notificações para receitas e despesas *pendentes*, no dia e, se quiser, 1 a 7 dias antes, no horário escolhido. Dá para esconder descrição e valor da notificação. No navegador (PWA) não há notificação; os avisos aparecem no topo do *Resumo* (atrasados e próximos 7 dias, com botão "Paguei"/"Recebi").
+- **Lembrete de backup**: o *Resumo* avisa quando o último backup tem 7 dias ou mais.
+- **Backup automático semanal (APK, opcional)**: uma cópia por semana em *Documentos/Controle Financeiro*, mantendo as 4 mais recentes. Não é criptografado e não sai do celular: de vez em quando, envie um backup para o Drive ou e-mail.
+
+### Assinatura do APK
+
+O APK é assinado sempre com a mesma chave (segredos `ANDROID_KEYSTORE_BASE64` e `ANDROID_KEYSTORE_SENHA` do repositório), para cada versão nova instalar por cima da anterior sem perder dados. Sem os segredos, o workflow gera só um APK de teste e não publica Release. Guarde a chave (`.p12`) fora do GitHub: sem ela, não há como publicar atualizações compatíveis.
+
 ### Desenvolvimento
 
 ```bash
