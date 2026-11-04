@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext.jsx';
 import { MesProvider } from './MesContext.jsx';
 import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
+import LoginLocal from './pages/LoginLocal.jsx';
+import { MODO_LOCAL } from './modo.js';
 import Resumo from './pages/Resumo.jsx';
 import Lancamentos from './pages/Lancamentos.jsx';
 import Orcamento from './pages/Orcamento.jsx';
@@ -15,12 +17,12 @@ function Conteudo() {
 
   if (carregando) {
     return (
-      <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
+      <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100dvh' }}>
         <CircularProgress />
       </Box>
     );
   }
-  if (!usuario) return <Login />;
+  if (!usuario) return MODO_LOCAL ? <LoginLocal /> : <Login />;
 
   return (
     <MesProvider>

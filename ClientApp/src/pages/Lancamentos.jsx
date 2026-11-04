@@ -3,8 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Chip, Fab, IconButton, InputAdornment, MenuItem, Paper, Skeleton, Snackbar, Stack, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
-  Tooltip, Typography,
+  Tooltip, Typography, useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -21,6 +22,7 @@ const rotuloStatus = (tipo, status) =>
 
 export default function Lancamentos() {
   const { mes } = useMes();
+  const celular = useMediaQuery(useTheme().breakpoints.down('sm')); // celular: lista de cartões em vez de tabela
   const { categorias, contas, erro: erroCadastros } = useCadastros();
   const [params, setParams] = useSearchParams();
 
@@ -121,6 +123,42 @@ export default function Lancamentos() {
         <Chip label={`Diferença: ${brl(receitas - despesas)}`} variant="outlined" />
       </Stack>
 
+      {celular ? (
+        <Stack spacing={1.5}>
+          {carregando && <Skeleton variant="rounded" height={110} />}
+          {!carregando && itens.length === 0 && (
+            <Paper variant="outlined" sx={{ py: 5, px: 2, textAlign: 'center', color: 'text.secondary' }}>
+              Nenhum lançamento encontrado. Use o botão “Novo lançamento” para registrar.
+            </Paper>
+          )}
+          {itens.map((l) => (
+            <Paper key={l.id} variant="outlined" sx={{ p: 1.5 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                <Typography fontWeight={500} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{l.descricao}</Typography>
+                <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap', color: l.tipo === 'Receita' ? 'success.main' : 'error.main' }}>
+                  {l.tipo === 'Receita' ? '+ ' : '− '}{brl(l.valor)}
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, overflowWrap: 'anywhere' }}>
+                {dataBR(l.data)} · {l.categoria} · {l.conta}
+              </Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
+                <Chip
+                  clickable onClick={() => alternarStatus(l)}
+                  label={rotuloStatus(l.tipo, l.status)}
+                  color={l.status === 'PagoRecebido' ? 'success' : 'warning'}
+                  variant={l.status === 'PagoRecebido' ? 'filled' : 'outlined'}
+                  aria-label={`${rotuloStatus(l.tipo, l.status)}. Toque para alterar o status`}
+                />
+                <Box sx={{ mr: -1 }}>
+                  <IconButton aria-label="Editar" onClick={() => setDialog({ aberto: true, item: l })}><EditIcon /></IconButton>
+                  <IconButton aria-label="Excluir" onClick={() => setExcluir(l)}><DeleteIcon /></IconButton>
+                </Box>
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      ) : (
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -180,10 +218,11 @@ export default function Lancamentos() {
           </TableBody>
         </Table>
       </TableContainer>
+      )}
 
       <Fab
         color="primary" variant="extended" onClick={() => setDialog({ aberto: true, item: null })}
-        sx={{ position: 'fixed', right: 24, bottom: { xs: 88, md: 24 } }}
+        sx={{ position: 'fixed', right: 'max(16px, env(safe-area-inset-right))', bottom: { xs: 'calc(80px + env(safe-area-inset-bottom))', md: 24 } }}
       >
         <AddIcon sx={{ mr: 1 }} /> Novo lançamento
       </Fab>

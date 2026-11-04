@@ -46,13 +46,14 @@ export default function Layout({ children }) {
   const [aviso, setAviso] = useState('');
   const [backupPendente, setBackupPendente] = useState(null); // texto do arquivo, aguardando confirmação
   const seletorArquivo = useRef(null);
+  const [versaoDados, setVersaoDados] = useState(0); // muda após importar: as telas recarregam os dados
 
   const aoExportar = async () => {
     setAncora(null);
     try {
       const r = await exportarBackup();
-      if (r === 'baixado') setAviso('Backup salvo. Confira a pasta Downloads.');
-      else if (r === 'compartilhado') setAviso('Backup pronto. Guarde o arquivo em um lugar seguro.');
+      if (r === 'baixado') setAviso('Backup salvo na pasta Downloads. O arquivo não é criptografado: guarde-o em lugar seguro.');
+      else if (r === 'compartilhado') setAviso('Backup pronto. O arquivo não é criptografado: guarde-o em lugar seguro.');
     } catch (e) {
       setAviso(e.message || 'Não foi possível gerar o backup.');
     }
@@ -74,7 +75,9 @@ export default function Layout({ children }) {
   const confirmarImportacao = async () => {
     try {
       await importarBackup(backupPendente);
-      window.location.reload(); // recarrega as telas com os dados restaurados
+      setBackupPendente(null);
+      setVersaoDados((v) => v + 1); // remonta as telas, que buscam os dados restaurados (sem deslogar)
+      setAviso('Backup importado com sucesso.');
     } catch (err) {
       setBackupPendente(null);
       setAviso(err.message || 'Não foi possível importar o backup.');
@@ -84,9 +87,12 @@ export default function Layout({ children }) {
   const atual = ITENS.findIndex((i) => i.caminho === pathname);
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar position="fixed" elevation={0} sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
-        <Toolbar sx={{ gap: 1 }}>
+    <Box sx={{ display: 'flex', minHeight: '100dvh' }}>
+      <AppBar
+        position="fixed" elevation={0}
+        sx={{ zIndex: (t) => t.zIndex.drawer + 1, pt: 'env(safe-area-inset-top)', pl: 'env(safe-area-inset-left)', pr: 'env(safe-area-inset-right)' }}
+      >
+        <Toolbar sx={{ gap: { xs: 0, sm: 1 }, px: { xs: 1, sm: 2 } }}>
           <Typography variant="h6" fontWeight={700} sx={{ display: { xs: 'none', sm: 'block' }, mr: 2 }}>
             Controle Financeiro
           </Typography>
@@ -98,7 +104,7 @@ export default function Layout({ children }) {
             <Tooltip title="Voltar ao mês atual">
               <Typography
                 onClick={() => setMes(mesAtual())}
-                sx={{ minWidth: 150, textAlign: 'center', fontWeight: 500, cursor: 'pointer', userSelect: 'none' }}
+                sx={{ minWidth: { xs: 130, sm: 150 }, textAlign: 'center', fontWeight: 500, cursor: 'pointer', userSelect: 'none' }}
               >
                 {rotuloMes(mes)}
               </Typography>
@@ -134,11 +140,9 @@ export default function Layout({ children }) {
                 <ListItemIcon><FileUploadIcon fontSize="small" /></ListItemIcon>Importar backup
               </MenuItem>
             )}
-            {!MODO_LOCAL && (
-              <MenuItem onClick={() => { setAncora(null); sair(); }}>
-                <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Sair
-              </MenuItem>
-            )}
+            <MenuItem onClick={() => { setAncora(null); sair(); }}>
+              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>Sair
+            </MenuItem>
           </Menu>
         </Toolbar>
       </AppBar>
@@ -149,6 +153,7 @@ export default function Layout({ children }) {
           sx={{ width: LARGURA, flexShrink: 0, '& .MuiDrawer-paper': { width: LARGURA, boxSizing: 'border-box' } }}
         >
           <Toolbar />
+          <Box sx={{ height: 'env(safe-area-inset-top)' }} />
           <List sx={{ p: 1 }}>
             {ITENS.map((i) => (
               <ListItemButton
@@ -165,16 +170,28 @@ export default function Layout({ children }) {
         </Drawer>
       )}
 
-      <Box component="main" sx={{ flex: 1, minWidth: 0, p: { xs: 2, md: 3 }, pb: { xs: 12, md: 3 } }}>
+      <Box
+        component="main"
+        sx={{
+          flex: 1, minWidth: 0, p: { xs: 2, md: 3 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 3 },
+          pl: { xs: 'max(16px, env(safe-area-inset-left))', md: 3 },
+          pr: { xs: 'max(16px, env(safe-area-inset-right))', md: 3 },
+        }}
+      >
         <Toolbar />
-        <Box sx={{ maxWidth: 1100, mx: 'auto' }}>{children}</Box>
+        <Box sx={{ height: 'env(safe-area-inset-top)' }} />
+        <Box key={versaoDados} sx={{ maxWidth: 1100, mx: 'auto' }}>{children}</Box>
       </Box>
 
       {!desktop && (
-        <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: (t) => t.zIndex.appBar }} elevation={8}>
+        <Paper
+          sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: (t) => t.zIndex.appBar, pb: 'env(safe-area-inset-bottom)' }}
+          elevation={8}
+        >
           <BottomNavigation showLabels value={atual === -1 ? 0 : atual} onChange={(_, v) => navigate(ITENS[v].caminho)}>
             {ITENS.map((i) => (
-              <BottomNavigationAction key={i.caminho} label={i.rotulo} icon={i.icone} />
+              <BottomNavigationAction key={i.caminho} label={i.rotulo} icon={i.icone} sx={{ minWidth: 0, px: 0.5 }} />
             ))}
           </BottomNavigation>
         </Paper>
@@ -190,7 +207,7 @@ export default function Layout({ children }) {
         texto="Todos os dados atuais deste aparelho serão substituídos pelos do arquivo. Se quiser guardá-los, exporte um backup antes."
         onConfirmar={confirmarImportacao} onCancelar={() => setBackupPendente(null)}
       />
-      <Snackbar open={Boolean(aviso)} autoHideDuration={4000} onClose={() => setAviso('')} message={aviso} />
+      <Snackbar open={Boolean(aviso)} autoHideDuration={6000} onClose={() => setAviso('')} message={aviso} />
     </Box>
   );
 }

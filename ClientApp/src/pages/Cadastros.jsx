@@ -53,14 +53,14 @@ export default function Cadastros() {
         </>
       }
     >
-      <ListItemText primary={item.nome} />
+      <ListItemText primary={item.nome} sx={{ overflowWrap: 'anywhere', pr: 1 }} />
       {extra}
     </ListItem>
   );
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <Typography variant="h5" fontWeight={700}>Cadastros</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog({ aberto: true, item: null })}>
           Nova {rotulo}
@@ -84,7 +84,10 @@ export default function Cadastros() {
                 </Typography>
                 <List disablePadding>
                   {categorias.filter((c) => c.tipo === t).map((c) =>
-                    linha(c, <Chip size="small" label={t} color={t === 'Receita' ? 'success' : 'error'} variant="outlined" sx={{ mr: 10 }} />)
+                    linha(c, <Chip
+                      size="small" label={t} color={t === 'Receita' ? 'success' : 'error'} variant="outlined"
+                      sx={{ mr: { xs: 0, sm: 10 }, display: { xs: 'none', sm: 'inline-flex' } }} /* no celular o título do grupo já diz o tipo */
+                    />)
                   )}
                 </List>
               </Box>

@@ -53,7 +53,7 @@ export default function Login() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2 }}>
+    <Box sx={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', p: 2 }}>
       <Card sx={{ width: '100%', maxWidth: 420 }}>
         <CardContent sx={{ p: 3 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 2 }}>

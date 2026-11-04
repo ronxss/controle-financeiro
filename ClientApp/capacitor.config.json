@@ -1,5 +1,8 @@
 {
   "appId": "com.ronxss.controlefinanceiro",
   "appName": "Controle Financeiro",
-  "webDir": "dist-local"
+  "webDir": "dist-local",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
+  }
 }
