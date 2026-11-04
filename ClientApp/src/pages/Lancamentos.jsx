@@ -87,23 +87,28 @@ export default function Lancamentos() {
   const alternarFixa = async (l) => {
     try {
       await api.patch(`/api/lancamentos/${l.id}/fixa`, { fixa: !l.fixa });
-      setMsg(l.fixa ? 'Despesa não é mais fixa.' : 'Marcada como despesa fixa.');
+      const nome = l.tipo === 'Receita' ? 'Receita' : 'Despesa';
+      setMsg(l.fixa ? `${nome} não é mais fixa.` : `${nome} marcada como fixa.`);
       carregar();
     } catch (e) {
       setErro(e.message);
     }
   };
 
-  const botaoFixa = (l, pequeno) => (TEM_FIXAS && l.tipo === 'Despesa' ? (
-    <Tooltip title={l.fixa ? 'Fixa: toque para desmarcar' : 'Marcar como despesa fixa'}>
+  const botaoFixa = (l, pequeno) => {
+    if (!TEM_FIXAS) return null;
+    const nome = l.tipo === 'Receita' ? 'receita' : 'despesa';
+    return (
+    <Tooltip title={l.fixa ? 'Fixa: toque para desmarcar' : `Marcar como ${nome} fixa`}>
       <IconButton
         size={pequeno ? 'small' : 'medium'} color={l.fixa ? 'primary' : 'default'} onClick={() => alternarFixa(l)}
-        aria-label={l.fixa ? 'Desmarcar despesa fixa' : 'Marcar como despesa fixa'} aria-pressed={l.fixa === true}
+        aria-label={l.fixa ? `Desmarcar ${nome} fixa` : `Marcar como ${nome} fixa`} aria-pressed={l.fixa === true}
       >
         {l.fixa ? <PushPinIcon fontSize={pequeno ? 'small' : 'medium'} /> : <PushPinOutlinedIcon fontSize={pequeno ? 'small' : 'medium'} />}
       </IconButton>
     </Tooltip>
-  ) : null);
+    );
+  };
 
   const confirmarExclusao = async () => {
     try {

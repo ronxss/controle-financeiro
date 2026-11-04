@@ -51,9 +51,13 @@ export default function Layout({ children }) {
   const aoExportar = async () => {
     setAncora(null);
     try {
-      const r = await exportarBackup();
-      if (r === 'baixado') setAviso('Backup salvo na pasta Downloads. O arquivo não é criptografado: guarde-o em lugar seguro.');
-      else if (r === 'compartilhado') setAviso('Backup pronto. O arquivo não é criptografado: guarde-o em lugar seguro.');
+      const { resultado, salvoEm } = await exportarBackup();
+      const cuidado = 'O arquivo não é criptografado: guarde-o em lugar seguro.';
+      const copia = salvoEm ? `Cópia salva em ${salvoEm}. ` : '';
+      if (resultado === 'baixado') setAviso(`Backup salvo na pasta Downloads. ${cuidado}`);
+      else if (resultado === 'compartilhado') setAviso(`Backup pronto. ${copia}${cuidado}`);
+      else if (resultado === 'salvo') setAviso(`${copia}${cuidado}`);
+      else setAviso('Exportação cancelada. Nenhum arquivo foi salvo.');
     } catch (e) {
       setAviso(e.message || 'Não foi possível gerar o backup.');
     }

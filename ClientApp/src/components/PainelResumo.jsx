@@ -34,6 +34,32 @@ function Barra({ valor, situacao, altura = 8 }) {
   );
 }
 
+function ListaFixos({ titulo, itens, receita = false }) {
+  if (itens.length === 0) return null;
+  return (
+    <Box>
+      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>{titulo}</Typography>
+      <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />} spacing={1}>
+        {itens.map((l) => (
+          <Stack key={l.id} direction="row" justifyContent="space-between" spacing={1} alignItems="center" sx={{ pt: 1 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ overflowWrap: 'anywhere' }}>{l.descricao}</Typography>
+              <Typography variant="caption" color="text.secondary">{dataBR(l.data)} · {l.categoria}</Typography>
+            </Box>
+            <Stack alignItems="flex-end" sx={{ flexShrink: 0 }}>
+              <Typography fontWeight={500} color={receita ? 'success.main' : undefined}>{brl(l.valor)}</Typography>
+              <Chip
+                size="small" label={l.status === 'Pendente' ? 'Pendente' : receita ? 'Recebido' : 'Pago'}
+                color={l.status === 'Pendente' ? 'warning' : 'success'} variant={l.status === 'Pendente' ? 'outlined' : 'filled'}
+              />
+            </Stack>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 /** Métricas de gastos e orçamento do mês (só no modo local). Se a rota não existir, simplesmente não aparece. */
 export default function PainelResumo({ mes, versao = 0 }) {
   const [d, setD] = useState(null);
@@ -120,53 +146,70 @@ export default function PainelResumo({ mes, versao = 0 }) {
         )}
       </Secao>
 
-      <Secao titulo="Despesas fixas × variáveis" acao={<CopiarFixas mes={mes} size="small" onFeito={copiado} onErro={setErro} />}>
+      <Secao titulo="Receitas e despesas fixas" acao={<CopiarFixas mes={mes} size="small" onFeito={copiado} onErro={setErro} />}>
+        {d.receitasFixas.quantidade + d.fixas.quantidade === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            Nenhum lançamento fixo neste mês. Marque receitas e despesas que se repetem (ícone de alfinete em
+            Lançamentos) ou copie as do mês anterior.
+          </Typography>
+        ) : (
+          <Stack spacing={2}>
+            <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' } }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Receitas fixas</Typography>
+                <Typography fontWeight={700} color="success.main">{brl(d.receitasFixas.total)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Despesas fixas</Typography>
+                <Typography fontWeight={700} color="error.main">{brl(d.fixas.total)}</Typography>
+              </Box>
+              <Box sx={{ gridColumn: { xs: '1 / -1', sm: 'auto' } }}>
+                <Typography variant="caption" color="text.secondary">Sobra depois das fixas</Typography>
+                <Typography fontWeight={700} color={d.saldoFixo < 0 ? 'error.main' : 'primary.main'}>{brl(d.saldoFixo)}</Typography>
+              </Box>
+            </Box>
+            {d.comprometimentoFixo !== null && (
+              <Box>
+                <Barra
+                  valor={d.comprometimentoFixo}
+                  situacao={d.comprometimentoFixo > 100 ? 'estourado' : d.comprometimentoFixo >= 80 ? 'alerta' : 'ok'}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  As despesas fixas consomem {pct(d.comprometimentoFixo)} das receitas fixas
+                </Typography>
+              </Box>
+            )}
+            <ListaFixos titulo="Receitas fixas" itens={d.receitasFixas.itens} receita />
+            <ListaFixos titulo="Despesas fixas" itens={d.fixas.itens} />
+          </Stack>
+        )}
+      </Secao>
+
+      <Secao titulo="Despesas fixas × variáveis">
         {totalDesp <= 0 ? (
           <Typography color="text.secondary">Nenhuma despesa neste mês.</Typography>
         ) : (
-          <Stack spacing={2}>
-            <Box>
-              <Box
-                role="img" aria-label={`Fixas ${pct(pctFixas)} e variáveis ${pct(100 - pctFixas)} das despesas do mês`}
-                sx={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', bgcolor: 'action.hover' }}
-              >
-                <Box sx={{ width: `${pctFixas}%`, bgcolor: 'primary.main' }} />
-                <Box sx={{ width: `${100 - pctFixas}%`, bgcolor: 'secondary.light' }} />
-              </Box>
-              <Stack direction="row" justifyContent="space-between" sx={{ mt: 1 }} spacing={2}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Fixas ({pct(pctFixas)})</Typography>
-                  <Typography fontWeight={700}>{brl(d.fixas.total)}</Typography>
-                  {d.fixas.pendentes > 0 && <Typography variant="caption" color="text.secondary">{brl(d.fixas.pendentes)} pendente</Typography>}
-                </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="caption" color="text.secondary">Variáveis ({pct(100 - pctFixas)})</Typography>
-                  <Typography fontWeight={700}>{brl(d.variaveis.total)}</Typography>
-                  {d.variaveis.pendentes > 0 && <Typography variant="caption" color="text.secondary">{brl(d.variaveis.pendentes)} pendente</Typography>}
-                </Box>
-              </Stack>
+          <Box>
+            <Box
+              role="img" aria-label={`Fixas ${pct(pctFixas)} e variáveis ${pct(100 - pctFixas)} das despesas do mês`}
+              sx={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', bgcolor: 'action.hover' }}
+            >
+              <Box sx={{ width: `${pctFixas}%`, bgcolor: 'primary.main' }} />
+              <Box sx={{ width: `${100 - pctFixas}%`, bgcolor: 'secondary.light' }} />
             </Box>
-          </Stack>
-        )}
-        {d.fixas.itens.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Nenhuma despesa fixa neste mês. Marque uma despesa como fixa (ícone de alfinete em Lançamentos) ou copie as do mês anterior.
-          </Typography>
-        ) : (
-          <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />} spacing={1} sx={{ mt: 2 }}>
-            {d.fixas.itens.map((l) => (
-              <Stack key={l.id} direction="row" justifyContent="space-between" spacing={1} alignItems="center" sx={{ pt: 1 }}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ overflowWrap: 'anywhere' }}>{l.descricao}</Typography>
-                  <Typography variant="caption" color="text.secondary">{dataBR(l.data)} · {l.categoria}</Typography>
-                </Box>
-                <Stack alignItems="flex-end" sx={{ flexShrink: 0 }}>
-                  <Typography fontWeight={500}>{brl(l.valor)}</Typography>
-                  <Chip size="small" label={l.status === 'Pendente' ? 'Pendente' : 'Pago'} color={l.status === 'Pendente' ? 'warning' : 'success'} variant={l.status === 'Pendente' ? 'outlined' : 'filled'} />
-                </Stack>
-              </Stack>
-            ))}
-          </Stack>
+            <Stack direction="row" justifyContent="space-between" sx={{ mt: 1 }} spacing={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Fixas ({pct(pctFixas)})</Typography>
+                <Typography fontWeight={700}>{brl(d.fixas.total)}</Typography>
+                {d.fixas.pendentes > 0 && <Typography variant="caption" color="text.secondary">{brl(d.fixas.pendentes)} pendente</Typography>}
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Variáveis ({pct(100 - pctFixas)})</Typography>
+                <Typography fontWeight={700}>{brl(d.variaveis.total)}</Typography>
+                {d.variaveis.pendentes > 0 && <Typography variant="caption" color="text.secondary">{brl(d.variaveis.pendentes)} pendente</Typography>}
+              </Box>
+            </Stack>
+          </Box>
         )}
       </Secao>
 

@@ -61,7 +61,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
       valor,
       status: f.pago ? 'PagoRecebido' : 'Pendente',
     };
-    if (TEM_FIXAS) payload.fixa = f.tipo === 'Despesa' && f.fixa === true;
+    if (TEM_FIXAS) payload.fixa = f.fixa === true;
 
     setSalvando(true);
     try {
@@ -91,7 +91,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
 
           <ToggleButtonGroup
             exclusive fullWidth value={f.tipo}
-            onChange={(_, v) => v && setF((p) => ({ ...p, tipo: v, categoriaId: '', fixa: v === 'Receita' ? false : p.fixa }))}
+            onChange={(_, v) => v && setF((p) => ({ ...p, tipo: v, categoriaId: '' }))}
           >
             <ToggleButton value="Despesa" color="error">Despesa</ToggleButton>
             <ToggleButton value="Receita" color="success">Receita</ToggleButton>
@@ -129,10 +129,10 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
             />
           </Stack>
 
-          {TEM_FIXAS && f.tipo === 'Despesa' && (
+          {TEM_FIXAS && (
             <FormControlLabel
               control={<Switch checked={f.fixa} onChange={(e) => setF((p) => ({ ...p, fixa: e.target.checked }))} />}
-              label="Despesa fixa (repete todo mês)"
+              label={f.tipo === 'Receita' ? 'Receita fixa (repete todo mês)' : 'Despesa fixa (repete todo mês)'}
             />
           )}
         </Stack>
