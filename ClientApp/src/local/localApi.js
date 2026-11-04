@@ -1,9 +1,13 @@
-// "API" do modo local: atende as mesmas rotas da API em C#, mas dentro do aparelho.
+// "API" do modo local: atende as mesmas rotas da API em C#, mas dentro do aparelho, para a conta que está logada.
 // As requisições são executadas uma de cada vez (fila), para que duas gravações seguidas nunca se atropelem.
 import { rotear, ErroLocal } from './engine.js';
-import { carregarEstado, salvarEstado } from './armazenamento.js';
+import { criarServicoUsuarios } from './usuarios.js';
+import { repo } from './armazenamento.js';
 
-let estado = null;
+export const servico = criarServicoUsuarios(repo);
+
+let sessao = null; // { usuario, chave } — a chave só existe na memória
+let estado = null; // dados (já abertos) da conta logada
 let fila = Promise.resolve();
 
 function enfileirar(tarefa) {
@@ -12,20 +16,41 @@ function enfileirar(tarefa) {
   return resultado;
 }
 
-async function garantirCarregado() {
-  if (!estado) estado = await carregarEstado();
+const exigirSessao = () => {
+  if (!sessao) throw new ErroLocal('Entre na sua conta para continuar.', 401);
+};
+
+/** Chamado depois de entrar/criar conta com sucesso. */
+export function abrirSessao(nova) {
+  sessao = { usuario: nova.usuario, chave: nova.chave };
+  estado = nova.estado;
+}
+
+/** Sair: esquece a chave e os dados da memória. */
+export function encerrarSessao() {
+  sessao = null;
+  estado = null;
+}
+
+export const sessaoAtual = () => sessao;
+export const estadoEmMemoria = () => estado;
+
+/** Depois de trocar a senha, a chave da sessão muda. */
+export function atualizarChave(nova) {
+  if (sessao) sessao = { ...sessao, chave: nova.chave };
 }
 
 /** Mesmo contrato de api.js: devolve o corpo da resposta ou lança ErroLocal (com .status). */
 export function requestLocal(metodo, url, corpo) {
   return enfileirar(async () => {
-    await garantirCarregado();
+    exigirSessao();
     const r = rotear(estado, metodo, url, corpo);
     if (r.alterou) {
       try {
-        await salvarEstado(estado);
+        await servico.salvar(sessao, estado);
       } catch (e) {
-        estado = null; // a memória pode ter ficado à frente do disco: recarrega na próxima chamada
+        // A memória pode ter ficado à frente do disco: volta para o que está gravado.
+        try { estado = await servico.carregar(sessao); } catch { /* mantém */ }
         throw e;
       }
     }
@@ -36,15 +61,16 @@ export function requestLocal(metodo, url, corpo) {
 /** Estado atual (para exportar backup). */
 export function lerEstadoAtual() {
   return enfileirar(async () => {
-    await garantirCarregado();
+    exigirSessao();
     return structuredClone(estado);
   });
 }
 
-/** Troca todos os dados (importação de backup). Recebe um estado já validado. */
+/** Troca todos os dados da conta logada (importação de backup). Recebe um estado já validado. */
 export function substituirEstado(novo) {
   return enfileirar(async () => {
-    await salvarEstado(novo);
+    exigirSessao();
+    await servico.salvar(sessao, novo);
     estado = novo;
   });
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from '@mui/material';
 import { api } from '../api.js';
+import { MODO_LOCAL } from '../modo.js';
+import { alterarSenha } from '../local/auth.js';
 
 export default function SenhaDialog({ open, onClose }) {
   const [atual, setAtual] = useState('');
@@ -17,7 +19,8 @@ export default function SenhaDialog({ open, onClose }) {
     setErro('');
     setSalvando(true);
     try {
-      await api.post('/api/auth/alterar-senha', { senhaAtual: atual, novaSenha: nova });
+      if (MODO_LOCAL) await alterarSenha(atual, nova);
+      else await api.post('/api/auth/alterar-senha', { senhaAtual: atual, novaSenha: nova });
       setOk(true);
     } catch (e) {
       setErro(e.message);

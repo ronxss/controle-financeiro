@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, InputAdornment, LinearProgress, Skeleton, Snackbar, Stack, Table,
-  TableBody, TableCell, TableHead, TableRow, TextField, Typography,
+  Alert, Box, Button, Card, CardContent, InputAdornment, LinearProgress, Paper, Skeleton, Snackbar, Stack, Table,
+  TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { brl, parseValor } from '../utils/format.js';
 
 export default function Orcamento() {
   const { mes } = useMes();
+  const celular = useMediaQuery(useTheme().breakpoints.down('md')); // até tablet em pé: cartões em vez de tabela
   const [itens, setItens] = useState(null);
   const [limites, setLimites] = useState({}); // categoriaId -> texto digitado
   const [erro, setErro] = useState('');
@@ -50,11 +52,41 @@ export default function Orcamento() {
     }
   };
 
+  const campoLimite = (i, largura) => (
+    <TextField
+      size="small" value={limites[i.categoriaId] ?? ''} placeholder="0,00" label={celular ? 'Limite mensal' : undefined}
+      fullWidth={Boolean(largura)} sx={largura ? undefined : { minWidth: 150 }}
+      error={numero(i.categoriaId) === null}
+      helperText={numero(i.categoriaId) === null ? 'Valor inválido. Ex.: 150,90' : undefined}
+      onChange={(e) => setLimites((p) => ({ ...p, [i.categoriaId]: e.target.value }))}
+      slotProps={{
+        input: { startAdornment: <InputAdornment position="start">R$</InputAdornment> },
+        htmlInput: { inputMode: 'decimal', 'aria-label': `Limite de ${i.categoria}` },
+      }}
+    />
+  );
+
+  const barra = (i) => {
+    const lim = numero(i.categoriaId) ?? 0;
+    const pct = lim > 0 ? (i.realizado / lim) * 100 : 0;
+    const cor = pct > 100 ? 'error' : pct >= 80 ? 'warning' : 'success';
+    return lim > 0 ? (
+      <Box>
+        <LinearProgress variant="determinate" value={Math.min(pct, 100)} color={cor} sx={{ height: 8, borderRadius: 4 }} />
+        <Typography variant="caption" color="text.secondary">{pct.toFixed(0)}% do limite</Typography>
+      </Box>
+    ) : (
+      <Typography variant="caption" color="text.secondary">sem limite</Typography>
+    );
+  };
+
   return (
     <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <Typography variant="h5" fontWeight={700}>Orçamento mensal</Typography>
-        <Button variant="contained" onClick={salvar} disabled={!itens || salvando || invalido}>Salvar limites</Button>
+        <Button variant="contained" onClick={salvar} disabled={!itens || salvando || invalido} sx={{ whiteSpace: 'nowrap' }}>
+          Salvar limites
+        </Button>
       </Stack>
       <Typography color="text.secondary">
         Defina um limite por categoria. O realizado considera apenas despesas já pagas no mês selecionado.
@@ -63,7 +95,33 @@ export default function Orcamento() {
       {erro && <Alert severity="error" onClose={() => setErro('')}>{erro}</Alert>}
       {!itens && <Skeleton variant="rounded" height={300} />}
 
-      {itens && (
+      {itens && celular && (
+        <Stack spacing={1.5}>
+          {itens.map((i) => {
+            const lim = numero(i.categoriaId) ?? 0;
+            const disponivel = lim - i.realizado;
+            return (
+              <Paper key={i.categoriaId} variant="outlined" sx={{ p: 1.5 }}>
+                <Typography fontWeight={500} sx={{ mb: 1.5 }}>{i.categoria}</Typography>
+                {campoLimite(i, true)}
+                <Stack direction="row" justifyContent="space-between" sx={{ mt: 1.5 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Realizado</Typography>
+                    <Typography fontWeight={500}>{brl(i.realizado)}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="caption" color="text.secondary">Disponível</Typography>
+                    <Typography fontWeight={500} color={disponivel < 0 ? 'error.main' : undefined}>{brl(disponivel)}</Typography>
+                  </Box>
+                </Stack>
+                <Box sx={{ mt: 1 }}>{barra(i)}</Box>
+              </Paper>
+            );
+          })}
+        </Stack>
+      )}
+
+      {itens && !celular && (
         <Card>
           <CardContent sx={{ overflowX: 'auto' }}>
             <Table size="small">
@@ -79,36 +137,15 @@ export default function Orcamento() {
               <TableBody>
                 {itens.map((i) => {
                   const lim = numero(i.categoriaId) ?? 0;
-                  const pct = lim > 0 ? (i.realizado / lim) * 100 : 0;
-                  const cor = pct > 100 ? 'error' : pct >= 80 ? 'warning' : 'success';
                   return (
                     <TableRow key={i.categoriaId}>
                       <TableCell>{i.categoria}</TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small" value={limites[i.categoriaId] ?? ''} placeholder="0,00"
-                          error={numero(i.categoriaId) === null}
-                          onChange={(e) => setLimites((p) => ({ ...p, [i.categoriaId]: e.target.value }))}
-                          slotProps={{
-                            input: { startAdornment: <InputAdornment position="start">R$</InputAdornment> },
-                            htmlInput: { inputMode: 'decimal' },
-                          }}
-                        />
-                      </TableCell>
+                      <TableCell>{campoLimite(i, false)}</TableCell>
                       <TableCell align="right">{brl(i.realizado)}</TableCell>
                       <TableCell align="right" sx={{ color: lim - i.realizado < 0 ? 'error.main' : undefined, fontWeight: 500 }}>
                         {brl(lim - i.realizado)}
                       </TableCell>
-                      <TableCell>
-                        {lim > 0 ? (
-                          <Box>
-                            <LinearProgress variant="determinate" value={Math.min(pct, 100)} color={cor} sx={{ height: 8, borderRadius: 4 }} />
-                            <Typography variant="caption" color="text.secondary">{pct.toFixed(0)}%</Typography>
-                          </Box>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">sem limite</Typography>
-                        )}
-                      </TableCell>
+                      <TableCell>{barra(i)}</TableCell>
                     </TableRow>
                   );
                 })}

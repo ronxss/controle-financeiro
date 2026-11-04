@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, InputAdornment,
-  MenuItem, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup,
+  MenuItem, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { api } from '../api.js';
 import { dataPadrao, parseValor } from '../utils/format.js';
 
 /** Formulário de registro: um único passo, com os mesmos campos da aba "Lançamentos" da planilha. */
 export default function LancamentoDialog({ open, item, categorias, contas, mes, onClose, onSaved }) {
   const editando = Boolean(item);
+  const celular = useMediaQuery(useTheme().breakpoints.down('sm'));
   const [f, setF] = useState(null);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
@@ -77,7 +79,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={celular}>
       <DialogTitle>{editando ? 'Editar lançamento' : 'Novo lançamento'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2.5} sx={{ mt: 1 }}>
@@ -125,7 +127,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
           </Stack>
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions sx={{ px: 3, pb: 'max(16px, env(safe-area-inset-bottom))', flexWrap: 'wrap', gap: 0.5 }}>
         <Button onClick={onClose}>Cancelar</Button>
         {!editando && <Button onClick={() => salvar(true)} disabled={salvando}>Salvar e adicionar outro</Button>}
         <Button variant="contained" onClick={() => salvar(false)} disabled={salvando}>Salvar</Button>

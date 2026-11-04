@@ -121,3 +121,35 @@ Para .NET 8, altere `TargetFramework` para `net8.0` e as versões dos pacotes `1
 
 O projeto inclui `.devcontainer/` (instala .NET 10, Node 24 e Docker, e sobe o SQL Server sozinho).
 Crie o codespace e, no terminal, execute: `dotnet run --urls http://localhost:5080`
+
+## App no celular (modo local, sem servidor)
+
+A mesma interface roda também **só no aparelho**, sem internet e sem servidor — os dados nunca saem do celular.
+
+| Plataforma | Como instalar |
+|---|---|
+| **Android (APK)** | Baixe o `controle-financeiro.apk` em **Releases** e instale (o Android pede para permitir "fontes desconhecidas"). O APK usa chave de debug: não é da Play Store. |
+| **Android e iPhone (PWA)** | Abra o endereço do GitHub Pages do projeto (`https://<usuario>.github.io/controle-financeiro/`) no Chrome/Safari e escolha **Adicionar à tela inicial**. Depois da primeira visita funciona offline. |
+
+Um app iOS nativo exigiria conta de desenvolvedor paga da Apple; no iPhone use o PWA.
+
+### Contas e senhas
+
+Na primeira vez, **crie uma conta** (nome de usuário + senha). Podem existir várias contas no mesmo aparelho, cada uma com seus próprios dados.
+
+- Os dados de cada conta ficam **criptografados** (AES-256-GCM) com uma chave derivada da senha (PBKDF2-SHA256, 600 mil iterações). A senha nunca é gravada.
+- **Não existe recuperação de senha**: sem ela, os dados não podem ser lidos por ninguém. Em "Esqueci minha senha" dá para apagar a conta e recomeçar importando um backup.
+- Use **Exportar backup** (menu do usuário) de vez em quando. O arquivo de backup **não é criptografado**: guarde-o em lugar seguro.
+- Quem usava uma versão anterior sem senha não perde nada: a primeira conta criada adota esses dados.
+- Limite do modelo: a criptografia protege o aparelho desligado/perdido e quem abrir o banco do navegador; não protege contra um aparelho já infectado ou contra quem observe você digitando a senha.
+
+### Desenvolvimento
+
+```bash
+cd ClientApp
+npm test                 # testes do motor local e das contas (node --test)
+npm run dev:mobile       # modo local com hot reload
+npm run build:mobile     # gera ClientApp/dist-local (PWA)
+```
+
+Workflows: **Publicar app (PWA)** (GitHub Pages, a cada push na `main`; ative em Settings → Pages → Source: *GitHub Actions*) e **APK Android** (Actions → Run workflow; preencha `versao`, ex. `v1.0.1`, para publicar em Releases).
