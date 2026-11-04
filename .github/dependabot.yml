@@ -10,6 +10,13 @@ updates:
     directory: "/ClientApp"
     schedule:
       interval: weekly
+    # Pacotes que dependem uns dos outros (peerDependencies) precisam subir juntos, na mesma PR.
+    # Sem isso, o Dependabot atualizava o plugin do Vite sozinho e o npm install quebrava.
+    groups:
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+      react:
+        patterns: ["react", "react-dom", "react-router-dom"]
 
   - package-ecosystem: docker
     directory: "/"
