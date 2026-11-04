@@ -4,7 +4,7 @@
 // ou tiver os dados limpos, tudo se perde, a não ser que exista um backup. Por isso o menu oferece
 // "Exportar backup" e "Importar backup".
 import { montarBackup, lerBackup, hojeISO } from './engine.js';
-import { lerEstadoAtual, substituirEstado } from './localApi.js';
+import { lerEstadoAtual, substituirEstado, requestLocal } from './localApi.js';
 import { Capacitor } from '@capacitor/core';
 import { exportarNoAparelho } from './exportarNativo.js';
 
@@ -27,6 +27,25 @@ function baixar(arquivo) {
  * - Computador: baixa o arquivo ('baixado').
  */
 export async function exportarBackup() {
+  const r = await gerarBackup();
+  if (r.resultado !== 'cancelado') {
+    // Anota a data para o lembrete de backup (falhar aqui não desfaz o backup).
+    try { await requestLocal('POST', '/api/backup/registrar', {}); } catch { /* ignora */ }
+  }
+  return r;
+}
+
+/** Texto curto para mostrar depois de exportar. */
+export function mensagemExportacao({ resultado, salvoEm }) {
+  const cuidado = 'O arquivo não é criptografado: guarde-o em lugar seguro.';
+  const copia = salvoEm ? `Cópia salva em ${salvoEm}. ` : '';
+  if (resultado === 'baixado') return `Backup salvo na pasta Downloads. ${cuidado}`;
+  if (resultado === 'compartilhado') return `Backup pronto. ${copia}${cuidado}`;
+  if (resultado === 'salvo') return `${copia}${cuidado}`;
+  return 'Exportação cancelada. Nenhum arquivo foi salvo.';
+}
+
+async function gerarBackup() {
   const estado = await lerEstadoAtual();
   const nome = `controle-financeiro-backup-${hojeISO()}.json`;
   const texto = montarBackup(estado);

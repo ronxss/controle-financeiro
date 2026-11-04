@@ -9,7 +9,8 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { brl } from '../utils/format.js';
-import { TEM_FIXAS } from '../modo.js';
+import { MODO_LOCAL, TEM_FIXAS } from '../modo.js';
+import AvisosResumo from '../components/AvisosResumo.jsx';
 import PainelResumo from '../components/PainelResumo.jsx';
 
 function Indicador({ titulo, valor, icone, cor }) {
@@ -31,11 +32,12 @@ export default function Resumo() {
   const navigate = useNavigate();
   const [r, setR] = useState(null);
   const [erro, setErro] = useState('');
+  const [versao, setVersao] = useState(0); // muda quando um aviso marca algo como pago: recarrega os números
 
   useEffect(() => {
-    setR(null);
+    if (versao === 0) setR(null);
     api.get(`/api/resumo?mes=${mes}`).then((d) => { setR(d); setErro(''); }).catch((e) => setErro(e.message));
-  }, [mes]);
+  }, [mes, versao]);
 
   const totalDespesas = r ? r.despesasPorCategoria.reduce((s, x) => s + x.realizado, 0) : 0;
   const visiveis = r ? r.despesasPorCategoria.filter((x) => x.realizado > 0) : [];
@@ -50,6 +52,7 @@ export default function Resumo() {
         </Button>
       </Stack>
 
+      {MODO_LOCAL && <AvisosResumo onMudou={() => setVersao((v) => v + 1)} />}
       {erro && <Alert severity="error">{erro}</Alert>}
       {vazio && <Alert severity="info">Nenhum lançamento neste mês ainda. Clique em “Novo lançamento” para começar.</Alert>}
 
@@ -88,7 +91,7 @@ export default function Resumo() {
         </CardContent>
       </Card>
 
-      {TEM_FIXAS && <PainelResumo mes={mes} />}
+      {TEM_FIXAS && <PainelResumo mes={mes} versao={versao} />}
     </Stack>
   );
 }

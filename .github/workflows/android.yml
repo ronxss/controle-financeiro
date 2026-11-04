@@ -55,14 +55,73 @@ jobs:
         working-directory: ClientApp
         run: npx cap sync android
 
+      # Assinatura FIXA: todas as versões precisam da mesma chave, senão o Android recusa instalar por cima
+      # (e desinstalar apaga os dados). A chave fica nos segredos do repositório:
+      #   ANDROID_KEYSTORE_BASE64 (arquivo .p12 em base64) e ANDROID_KEYSTORE_SENHA.
+      # Sem os segredos, gera um APK de teste com chave aleatória — e NÃO publica Release.
+      - name: Configura assinatura e versão
+        working-directory: ClientApp
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          VERSAO: ${{ inputs.versao || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+        run: |
+          # v1.2.3 -> versionCode 10203 (precisa crescer a cada versão para o Android aceitar a atualização)
+          NOME="${VERSAO#v}"
+          if [[ "$NOME" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            CODIGO=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
+          else
+            NOME="0.0.0-dev"; CODIGO=1
+          fi
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/chave.p12"
+            echo "ASSINADO=sim" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Segredo ANDROID_KEYSTORE_BASE64 ausente: APK de teste, assinado com chave aleatória."
+            echo "ASSINADO=nao" >> "$GITHUB_ENV"
+          fi
+          cat >> android/app/build.gradle <<GRADLE
+
+          // --- Acrescentado pelo workflow (versão e assinatura fixa) ---
+          android {
+              defaultConfig {
+                  versionCode $CODIGO
+                  versionName "$NOME"
+              }
+              if (System.getenv("ASSINADO") == "sim") {
+                  signingConfigs {
+                      fixa {
+                          storeFile file(System.getenv("RUNNER_TEMP") + "/chave.p12")
+                          storeType "pkcs12"
+                          storePassword System.getenv("KS_SENHA")
+                          keyAlias "controle-financeiro"
+                          keyPassword System.getenv("KS_SENHA")
+                      }
+                  }
+                  buildTypes { release { signingConfig signingConfigs.fixa } }
+              }
+          }
+          GRADLE
+
       - name: Compila o APK
         working-directory: ClientApp/android
-        run: ./gradlew assembleDebug --no-daemon
+        env:
+          KS_SENHA: ${{ secrets.ANDROID_KEYSTORE_SENHA }}
+        run: |
+          if [ "$ASSINADO" = "sim" ]; then
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../controle-financeiro.apk
+          else
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../controle-financeiro.apk
+          fi
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$APKSIGNER" verify --print-certs ../controle-financeiro.apk | tee ../certificado.txt
+          grep -q "SHA-256" ../certificado.txt
 
       - uses: actions/upload-artifact@v7
         with:
           name: controle-financeiro-apk
-          path: ClientApp/android/app/build/outputs/apk/debug/app-debug.apk
+          path: ClientApp/controle-financeiro.apk
 
       - name: Publica em Releases (com tag ou versão informada)
         if: startsWith(github.ref, 'refs/tags/v') || inputs.versao != ''
@@ -70,5 +129,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSAO: ${{ inputs.versao || github.ref_name }}
         run: |
-          cp ClientApp/android/app/build/outputs/apk/debug/app-debug.apk controle-financeiro.apk
-          gh release create "$VERSAO" controle-financeiro.apk --target "$GITHUB_SHA" --title "$VERSAO" --notes "APK Android (assinado com chave de debug). Dados ficam só no aparelho." --repo "$GITHUB_REPOSITORY"
+          if [ "$ASSINADO" != "sim" ]; then
+            echo "::error::Sem a chave fixa (segredos ANDROID_KEYSTORE_*) a Release não é publicada: o APK não atualizaria por cima do anterior."
+            exit 1
+          fi
+          CERT=$(grep -m1 "SHA-256" ClientApp/certificado.txt | sed 's/.*: //')
+          gh release create "$VERSAO" ClientApp/controle-financeiro.apk --target "$GITHUB_SHA" --title "$VERSAO" \
+            --notes "APK Android. Dados ficam só no aparelho. Certificado (SHA-256): $CERT" --repo "$GITHUB_REPOSITORY"

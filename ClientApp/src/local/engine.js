@@ -42,7 +42,43 @@ export function criarEstadoInicial() {
     estado.categorias.push({ id: ++estado.seq.categoria, nome, tipo: 'Despesa', limiteCentavos: 0 });
   }
   for (const nome of CONTAS_PADRAO) estado.contas.push({ id: ++estado.seq.conta, nome });
+  estado.config = configPadrao();
   return estado;
+}
+
+// ---------- Configurações do aparelho (lembretes e backup) ----------
+
+export const ANTECEDENCIAS = [0, 1, 2, 3, 5, 7]; // dias antes do vencimento para avisar
+export const DIAS_PARA_LEMBRAR_BACKUP = 7;
+
+export function configPadrao() {
+  return {
+    lembretes: { ativo: false, diasAntes: 1, hora: 9, detalhes: true },
+    backup: { automatico: false, ultimo: null, ultimoAutomatico: null },
+  };
+}
+
+const instanteValido = (v) => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v));
+const horaValida = (v) => Number.isInteger(v) && v >= 0 && v <= 23;
+
+/** Lê a configuração gravada (ou de um backup) com tolerância: o que faltar ou estiver errado volta ao padrão. */
+function normalizarConfig(c) {
+  const p = configPadrao();
+  const l = c?.lembretes ?? {};
+  const b = c?.backup ?? {};
+  return {
+    lembretes: {
+      ativo: typeof l.ativo === 'boolean' ? l.ativo : p.lembretes.ativo,
+      diasAntes: ANTECEDENCIAS.includes(l.diasAntes) ? l.diasAntes : p.lembretes.diasAntes,
+      hora: horaValida(l.hora) ? l.hora : p.lembretes.hora,
+      detalhes: typeof l.detalhes === 'boolean' ? l.detalhes : p.lembretes.detalhes,
+    },
+    backup: {
+      automatico: typeof b.automatico === 'boolean' ? b.automatico : p.backup.automatico,
+      ultimo: instanteValido(b.ultimo) ? b.ultimo : null,
+      ultimoAutomatico: instanteValido(b.ultimoAutomatico) ? b.ultimoAutomatico : null,
+    },
+  };
 }
 
 // ---------- Utilidades ----------
@@ -597,6 +633,97 @@ function painel(estado, metodo, consulta, hoje) {
   };
 }
 
+// ---------- Configurações, lembretes e registro de backup ----------
+
+/** Dias entre duas datas aaaa-mm-dd (b - a). */
+export function diasEntre(a, b) {
+  const utc = (d) => Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
+  return Math.round((utc(b) - utc(a)) / 86_400_000);
+}
+
+function config(estado, metodo, corpo) {
+  if (!estado.config) estado.config = configPadrao();
+  if (metodo === 'GET') return { status: 200, corpo: structuredClone(estado.config) };
+  if (metodo !== 'PUT') return null;
+
+  const c = corpo ?? {};
+  const atual = estado.config;
+  const novo = structuredClone(atual);
+  const invalido = (campo) => new ErroLocal(`Valor inválido para "${campo}".`, 400);
+  if (c.lembretes !== undefined) {
+    const l = c.lembretes;
+    if (!l || typeof l !== 'object') throw invalido('lembretes');
+    if (l.ativo !== undefined) { if (typeof l.ativo !== 'boolean') throw invalido('ativo'); novo.lembretes.ativo = l.ativo; }
+    if (l.diasAntes !== undefined) { if (!ANTECEDENCIAS.includes(l.diasAntes)) throw invalido('diasAntes'); novo.lembretes.diasAntes = l.diasAntes; }
+    if (l.hora !== undefined) { if (!horaValida(l.hora)) throw invalido('hora'); novo.lembretes.hora = l.hora; }
+    if (l.detalhes !== undefined) { if (typeof l.detalhes !== 'boolean') throw invalido('detalhes'); novo.lembretes.detalhes = l.detalhes; }
+  }
+  if (c.backup !== undefined) {
+    const b = c.backup;
+    if (!b || typeof b !== 'object') throw invalido('backup');
+    // As datas do último backup não são editáveis aqui: só /api/backup/registrar as muda.
+    if (b.automatico !== undefined) { if (typeof b.automatico !== 'boolean') throw invalido('automatico'); novo.backup.automatico = b.automatico; }
+  }
+  estado.config = novo;
+  return { status: 200, corpo: structuredClone(novo), alterou: JSON.stringify(novo) !== JSON.stringify(atual) };
+}
+
+/** POST /api/backup/registrar { automatico? } — anota quando foi feito o último backup. */
+function registrarBackup(estado, metodo, corpo, agora) {
+  if (metodo !== 'POST') return null;
+  if (!estado.config) estado.config = configPadrao();
+  if (corpo?.automatico !== undefined && typeof corpo.automatico !== 'boolean') throw new ErroLocal('Valor inválido para "automatico".', 400);
+  estado.config.backup[corpo?.automatico ? 'ultimoAutomatico' : 'ultimo'] = agora;
+  return { status: 200, corpo: structuredClone(estado.config.backup), alterou: true };
+}
+
+/**
+ * GET /api/lembretes?dias=7 — lançamentos PENDENTES atrasados e os que vencem nos próximos `dias` dias (receitas e
+ * despesas), e há quantos dias foi o último backup. Alimenta os avisos do Resumo.
+ */
+function lembretes(estado, metodo, consulta, hoje, agora) {
+  if (metodo !== 'GET') return null;
+  const diasTexto = consulta.get('dias');
+  if (diasTexto !== null && !/^\d{1,2}$/.test(diasTexto)) throw new ErroLocal('Valor de "dias" inválido. Use de 0 a 60.', 400);
+  const dias = diasTexto === null ? 7 : Number(diasTexto);
+  if (dias > 60) throw new ErroLocal('Valor de "dias" inválido. Use de 0 a 60.', 400);
+
+  const nomeCat = new Map(estado.categorias.map((c) => [c.id, c.nome]));
+  const item = (l) => ({
+    id: l.id, data: l.data, tipo: l.tipo, descricao: l.descricao, categoria: nomeCat.get(l.categoriaId) ?? '',
+    valor: emReais(l.valorCentavos), valorCentavos: l.valorCentavos, fixa: l.fixa === true, dias: diasEntre(hoje, l.data),
+  });
+  const pendentes = estado.lancamentos
+    .filter((l) => l.status === 'Pendente')
+    .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : a.id - b.id))
+    .map(item);
+  const atrasados = pendentes.filter((x) => x.dias < 0);
+  const proximos = pendentes.filter((x) => x.dias >= 0 && x.dias <= dias);
+  const soma = (lista, tipo) => emReais(lista.filter((x) => x.tipo === tipo).reduce((t, x) => t + x.valorCentavos, 0));
+  const limpar = (lista) => lista.map(({ valorCentavos, ...resto }) => resto);
+
+  const cfg = estado.config ?? configPadrao();
+  const instantes = [cfg.backup.ultimo, cfg.backup.ultimoAutomatico].filter(Boolean).sort();
+  const ultimo = instantes.at(-1) ?? null;
+  const diasDesde = ultimo ? Math.max(0, diasEntre(hojeISO(new Date(ultimo)), hoje)) : null;
+
+  return {
+    status: 200,
+    corpo: {
+      hoje, dias, atrasados: limpar(atrasados), proximos: limpar(proximos),
+      totais: {
+        despesasAtrasadas: soma(atrasados, 'Despesa'), receitasAtrasadas: soma(atrasados, 'Receita'),
+        despesasProximas: soma(proximos, 'Despesa'), receitasProximas: soma(proximos, 'Receita'),
+      },
+      backup: {
+        ultimo, diasDesde,
+        // Só lembra de backup quando há algo a perder.
+        atrasado: estado.lancamentos.length > 0 && (diasDesde === null || diasDesde >= DIAS_PARA_LEMBRAR_BACKUP),
+      },
+    },
+  };
+}
+
 // ---------- Roteador ----------
 
 /**
@@ -604,7 +731,7 @@ function painel(estado, metodo, consulta, hoje) {
  * Devolve { status, corpo, alterou } ou lança ErroLocal (com .status) quando a API devolveria erro.
  * `alterou` indica se o estado foi modificado e precisa ser salvo.
  */
-export function rotear(estado, metodo, url, corpo, { hoje = hojeISO() } = {}) {
+export function rotear(estado, metodo, url, corpo, { agora = new Date().toISOString(), hoje = hojeISO(new Date(agora)) } = {}) {
   const u = new URL(url, 'http://local');
   const caminho = u.pathname.replace(/\/+$/, '');
   const partes = caminho.split('/').filter(Boolean); // ['api', 'lancamentos', '12', 'status']
@@ -620,6 +747,8 @@ export function rotear(estado, metodo, url, corpo, { hoje = hojeISO() } = {}) {
 
     if ((recurso === 'lancamentos-fixos' || recurso === 'despesas-fixas') && partes.length === 3 && idTexto === 'copiar') {
       r = copiarFixas(estado, m, corpo, hoje);
+    } else if (recurso === 'backup' && partes.length === 3 && idTexto === 'registrar') {
+      r = registrarBackup(estado, m, corpo, agora);
     } else if (!idInvalido && partes.length <= 4) {
       if (recurso === 'categorias' && partes.length <= 3) r = categorias(estado, m, id, corpo);
       else if (recurso === 'contas' && partes.length <= 3) r = contas(estado, m, id, corpo);
@@ -627,6 +756,8 @@ export function rotear(estado, metodo, url, corpo, { hoje = hojeISO() } = {}) {
       else if (recurso === 'resumo' && partes.length === 2) r = resumo(estado, m, u.searchParams, hoje);
       else if (recurso === 'orcamento' && partes.length === 2) r = orcamento(estado, m, corpo, u.searchParams, hoje);
       else if (recurso === 'dashboard' && partes.length === 2) r = painel(estado, m, u.searchParams, hoje);
+      else if (recurso === 'config' && partes.length === 2) r = config(estado, m, corpo);
+      else if (recurso === 'lembretes' && partes.length === 2) r = lembretes(estado, m, u.searchParams, hoje, agora);
     }
   }
 
@@ -691,6 +822,7 @@ export function validarEstado(e) {
       // Backups e dados de versões anteriores não têm "fixa": contam como não fixo.
       fixa: l.fixa === true,
     })),
+    config: normalizarConfig(e.config), // versões anteriores não têm configurações
   };
 }
 

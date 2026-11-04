@@ -10,6 +10,21 @@ let sessao = null; // { usuario, chave } — a chave só existe na memória
 let estado = null; // dados (já abertos) da conta logada
 let fila = Promise.resolve();
 
+// Quem precisa saber quando os dados mudam (agendar lembretes, backup automático). Recebem uma CÓPIA do estado.
+const ouvintes = new Set();
+/** Registra uma função chamada depois de entrar, de cada gravação e de importar backup. Devolve "cancelar". */
+export function aoMudarDados(fn) {
+  ouvintes.add(fn);
+  return () => ouvintes.delete(fn);
+}
+function avisarOuvintes() {
+  if (!estado || ouvintes.size === 0) return;
+  const copia = structuredClone(estado);
+  for (const fn of ouvintes) {
+    try { fn(copia); } catch (e) { console.warn('Falha ao avisar mudança de dados', e); }
+  }
+}
+
 function enfileirar(tarefa) {
   const resultado = fila.then(tarefa);
   fila = resultado.catch(() => {}); // um erro não pode travar a fila
@@ -24,6 +39,7 @@ const exigirSessao = () => {
 export function abrirSessao(nova) {
   sessao = { usuario: nova.usuario, chave: nova.chave };
   estado = nova.estado;
+  avisarOuvintes();
 }
 
 /** Sair: esquece a chave e os dados da memória. */
@@ -53,6 +69,7 @@ export function requestLocal(metodo, url, corpo) {
         try { estado = await servico.carregar(sessao); } catch { /* mantém */ }
         throw e;
       }
+      avisarOuvintes();
     }
     return r.corpo;
   });
@@ -72,6 +89,7 @@ export function substituirEstado(novo) {
     exigirSessao();
     await servico.salvar(sessao, novo);
     estado = novo;
+    avisarOuvintes();
   });
 }
 

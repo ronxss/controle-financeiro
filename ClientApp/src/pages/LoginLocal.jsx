@@ -8,6 +8,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { excluirConta, listarUsuarios, temDadosAntigos, ultimoUsuario } from '../local/auth.js';
+import { cancelarNotificacoes } from '../local/servicosAparelho.js';
 
 /** Entrar / criar conta no modo local. As contas existem só neste aparelho e protegem (criptografam) os dados. */
 export default function LoginLocal() {
@@ -159,6 +160,7 @@ function EsqueciSenhaDialog({ open, nomeInicial, onClose, onApagada }) {
     setApagando(true);
     try {
       await excluirConta(nome);
+      await cancelarNotificacoes(); // lembretes dessa conta não devem continuar aparecendo
       onApagada(true);
     } catch (e) {
       setErro(e.message);

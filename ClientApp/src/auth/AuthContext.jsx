@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { MODO_LOCAL } from '../modo.js';
 import { solicitarPersistencia } from '../local/armazenamento.js';
 import * as contaLocal from '../local/auth.js';
+import { iniciarServicosAparelho } from '../local/servicosAparelho.js';
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -14,6 +15,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (MODO_LOCAL) {
       solicitarPersistencia(); // pede ao navegador para não apagar os dados sozinho
+      iniciarServicosAparelho(); // APK: lembretes e backup automático (no navegador não faz nada)
       return undefined; // no modo local, a pessoa sempre começa na tela de login (a chave só vive na memória)
     }
 
