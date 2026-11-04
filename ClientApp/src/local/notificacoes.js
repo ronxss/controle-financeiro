@@ -1,11 +1,14 @@
 // Planeja as notificações de vencimento (APK). Módulo puro: recebe o estado e devolve a lista do que agendar.
 // O agendamento de verdade (plugin Local Notifications) fica em servicosAparelho.js.
 //
-// Para cada lançamento PENDENTE (receita ou despesa) que ainda não venceu:
+// Para cada lançamento PENDENTE (receita ou despesa) que ainda não venceu — e, para cartões, para cada FATURA com
+// compras pendentes (pela data de vencimento da fatura, não pela data de cada compra):
 //   - um aviso `diasAntes` dias antes, na hora escolhida (se diasAntes > 0);
 //   - um aviso no próprio dia do vencimento, na mesma hora.
 // Só entram horários no futuro, e no máximo `maximo` avisos (os mais próximos), porque o Android limita a quantidade
 // de alarmes por app. A lista é refeita toda vez que os dados mudam.
+
+import { vencimentosPendentes } from './engine.js';
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dois = (n) => String(n).padStart(2, '0');
@@ -23,20 +26,27 @@ function quandoTexto(dias) {
   return `em ${dias} dias`;
 }
 
-function textos(l, dias, detalhes, nomeCategoria) {
-  const receita = l.tipo === 'Receita';
+function textos(v, dias, detalhes) {
+  const receita = v.tipo === 'Receita';
+  const fatura = v.tipo === 'Fatura';
   const quando = quandoTexto(dias);
   if (!detalhes) {
-    return {
-      titulo: receita ? `Você tem uma receita prevista para ${quando}` : `Você tem uma conta que vence ${quando}`,
-      texto: 'Abra o Controle Financeiro para ver.',
-    };
+    let titulo = `Você tem uma conta que vence ${quando}`;
+    if (receita) titulo = `Você tem uma receita prevista para ${quando}`;
+    if (fatura) titulo = `Uma fatura de cartão vence ${quando}`;
+    return { titulo, texto: 'Abra o Controle Financeiro para ver.' };
   }
+  const valor = moeda.format(v.valorCentavos / 100);
+  if (fatura) return { titulo: `${v.descricao} vence ${quando}`, texto: valor };
   const prefixo = receita ? `Receita prevista para ${quando}` : `Vence ${quando}`;
-  return {
-    titulo: `${prefixo}: ${l.descricao}`,
-    texto: [moeda.format(l.valorCentavos / 100), nomeCategoria].filter(Boolean).join(' · '),
-  };
+  return { titulo: `${prefixo}: ${v.descricao}`, texto: [valor, v.categoria].filter(Boolean).join(' · ') };
+}
+
+/** Número inteiro estável por vencimento (lançamento ou fatura). O Android exige inteiro de 32 bits. */
+function idBase(v) {
+  if (v.tipo !== 'Fatura') return v.id;
+  const [a, m] = v.fatura.split('-').map(Number);
+  return 100_000_000 + v.contaId * 1500 + (((a - 2000) * 12 + m) % 1500);
 }
 
 /** Devolve [{ id, quando: Date, titulo, texto, lancamentoId }] em ordem de horário. */
@@ -44,21 +54,19 @@ export function planejarNotificacoes(estado, { agora = new Date(), maximo = 60 }
   const cfg = estado?.config?.lembretes;
   if (!cfg?.ativo) return [];
   const hoje = dataLocal(agora);
-  const nomeCat = new Map((estado.categorias ?? []).map((c) => [c.id, c.nome]));
   const planos = [];
 
-  for (const l of estado.lancamentos ?? []) {
-    if (l.status !== 'Pendente' || l.data < hoje) continue;
-    const avisos = [{ dias: 0, quando: momento(l.data, cfg.hora), sufixo: 0 }];
-    if (cfg.diasAntes > 0) avisos.push({ dias: cfg.diasAntes, quando: momento(l.data, cfg.hora, -cfg.diasAntes), sufixo: 1 });
+  for (const v of vencimentosPendentes(estado)) {
+    if (v.data < hoje) continue;
+    const avisos = [{ dias: 0, quando: momento(v.data, cfg.hora), sufixo: 0 }];
+    if (cfg.diasAntes > 0) avisos.push({ dias: cfg.diasAntes, quando: momento(v.data, cfg.hora, -cfg.diasAntes), sufixo: 1 });
     for (const a of avisos) {
       if (a.quando <= agora) continue;
       planos.push({
-        // id numérico estável e único por aviso (o Android exige inteiro de 32 bits)
-        id: l.id * 10 + a.sufixo,
+        id: idBase(v) * 10 + a.sufixo,
         quando: a.quando,
-        lancamentoId: l.id,
-        ...textos(l, a.dias, cfg.detalhes, nomeCat.get(l.categoriaId)),
+        lancamentoId: v.id,
+        ...textos(v, a.dias, cfg.detalhes),
       });
     }
   }

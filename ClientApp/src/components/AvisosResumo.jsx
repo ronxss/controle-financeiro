@@ -18,7 +18,7 @@ function Lista({ itens, onPagar, ocupado }) {
   return (
     <Stack spacing={0.75} sx={{ mt: 0.5 }}>
       {itens.slice(0, MAX_ITENS).map((x) => (
-        <Stack key={x.id} direction="row" alignItems="center" spacing={1} justifyContent="space-between">
+        <Stack key={x.chave} direction="row" alignItems="center" spacing={1} justifyContent="space-between">
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="body2" fontWeight={500} sx={{ overflowWrap: 'anywhere' }}>
               {x.descricao} · <span style={{ whiteSpace: 'nowrap' }}>{x.tipo === 'Receita' ? '+' : '−'} {brl(x.valor)}</span>
@@ -26,7 +26,7 @@ function Lista({ itens, onPagar, ocupado }) {
             <Typography variant="caption">{dataBR(x.data)} · {quando(x.dias)}</Typography>
           </Box>
           <Button size="small" color="inherit" variant="outlined" disabled={ocupado} onClick={() => onPagar(x)} sx={{ flexShrink: 0 }}>
-            {x.tipo === 'Receita' ? 'Recebi' : 'Paguei'}
+            {x.tipo === 'Receita' ? 'Recebi' : x.tipo === 'Fatura' ? 'Paguei a fatura' : 'Paguei'}
           </Button>
         </Stack>
       ))}
@@ -51,8 +51,13 @@ export default function AvisosResumo({ onMudou }) {
   const pagar = async (x) => {
     setOcupado(true);
     try {
-      await api.patch(`/api/lancamentos/${x.id}/status`, { status: 'PagoRecebido' });
-      setMsg(`“${x.descricao}” marcado como ${x.tipo === 'Receita' ? 'recebido' : 'pago'}.`);
+      if (x.tipo === 'Fatura') {
+        await api.post(`/api/cartoes/${x.contaId}/pagar`, { mes: x.fatura });
+        setMsg(`${x.descricao} marcada como paga.`);
+      } else {
+        await api.patch(`/api/lancamentos/${x.id}/status`, { status: 'PagoRecebido' });
+        setMsg(`“${x.descricao}” marcado como ${x.tipo === 'Receita' ? 'recebido' : 'pago'}.`);
+      }
       carregar();
       onMudou?.();
     } catch (e) {

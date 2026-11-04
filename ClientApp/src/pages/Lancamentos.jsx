@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Chip, Fab, IconButton, InputAdornment, MenuItem, Paper, Skeleton, Snackbar, Stack, Table,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Fab, IconButton, InputAdornment, MenuItem, Paper, Skeleton, Snackbar, Stack, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography, useMediaQuery,
 } from '@mui/material';
@@ -15,7 +15,7 @@ import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 import { api } from '../api.js';
 import { useMes } from '../MesContext.jsx';
 import { useCadastros } from '../hooks.js';
-import { brl, dataBR } from '../utils/format.js';
+import { brl, dataBR, rotuloMesCurto } from '../utils/format.js';
 import { TEM_FIXAS } from '../modo.js';
 import CopiarFixas from '../components/CopiarFixas.jsx';
 import LancamentoDialog from '../components/LancamentoDialog.jsx';
@@ -110,11 +110,11 @@ export default function Lancamentos() {
     );
   };
 
-  const confirmarExclusao = async () => {
+  const confirmarExclusao = async (modo) => {
     try {
-      await api.delete(`/api/lancamentos/${excluir.id}`);
+      const r = await api.delete(`/api/lancamentos/${excluir.id}${modo ? `?parcelas=${modo}` : ''}`);
       setExcluir(null);
-      setMsg('Lançamento excluído.');
+      setMsg(r?.removidos > 1 ? `${r.removidos} parcelas excluídas.` : 'Lançamento excluído.');
       carregar();
     } catch (e) {
       setExcluir(null);
@@ -179,13 +179,14 @@ export default function Lancamentos() {
                 <Typography fontWeight={500} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                   {l.descricao}
                   {l.fixa && <Chip size="small" label="Fixa" color="primary" variant="outlined" sx={{ ml: 1, height: 20 }} />}
+                  {l.parcela && <Chip size="small" label={`${l.parcela.numero}/${l.parcela.total}`} variant="outlined" sx={{ ml: 1, height: 20 }} />}
                 </Typography>
                 <Typography fontWeight={700} sx={{ whiteSpace: 'nowrap', color: l.tipo === 'Receita' ? 'success.main' : 'error.main' }}>
                   {l.tipo === 'Receita' ? '+ ' : '− '}{brl(l.valor)}
                 </Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, overflowWrap: 'anywhere' }}>
-                {dataBR(l.data)} · {l.categoria} · {l.conta}
+                {dataBR(l.data)} · {l.categoria} · {l.conta}{l.fatura && ` (fatura ${rotuloMesCurto(l.fatura)})`}
               </Typography>
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
                 <Chip
@@ -238,13 +239,17 @@ export default function Lancamentos() {
                   <Typography variant="body2" fontWeight={500}>
                     {l.descricao}
                     {l.fixa && <Chip size="small" label="Fixa" color="primary" variant="outlined" sx={{ ml: 1, height: 18, fontSize: 11 }} />}
+                    {l.parcela && <Chip size="small" label={`${l.parcela.numero}/${l.parcela.total}`} variant="outlined" sx={{ ml: 1, height: 18, fontSize: 11 }} />}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'block', sm: 'none' } }}>
                     {l.categoria}
                   </Typography>
                 </TableCell>
                 <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{l.categoria}</TableCell>
-                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{l.conta}</TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                  {l.conta}
+                  {l.fatura && <Typography variant="caption" color="text.secondary" display="block">fatura {rotuloMesCurto(l.fatura)}</Typography>}
+                </TableCell>
                 <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 500, color: l.tipo === 'Receita' ? 'success.main' : 'error.main' }}>
                   {l.tipo === 'Receita' ? '+ ' : '− '}{brl(l.valor)}
                 </TableCell>
@@ -282,10 +287,24 @@ export default function Lancamentos() {
         onClose={() => setDialog({ aberto: false, item: null })} onSaved={carregar}
       />
       <ConfirmDialog
-        open={Boolean(excluir)} titulo="Excluir lançamento?"
+        open={Boolean(excluir) && !excluir.parcela} titulo="Excluir lançamento?"
         texto={excluir ? `“${excluir.descricao}” (${brl(excluir.valor)}) será removido permanentemente.` : ''}
-        onConfirmar={confirmarExclusao} onCancelar={() => setExcluir(null)}
+        onConfirmar={() => confirmarExclusao(null)} onCancelar={() => setExcluir(null)}
       />
+      <Dialog open={Boolean(excluir?.parcela)} onClose={() => setExcluir(null)}>
+        <DialogTitle>Excluir parcela?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {excluir?.parcela && `“${excluir.descricao}”, parcela ${excluir.parcela.numero} de ${excluir.parcela.total} (${brl(excluir.valor)}). O que deseja excluir?`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 0.5, px: 2, pb: 2 }}>
+          <Button onClick={() => setExcluir(null)}>Cancelar</Button>
+          <Button color="error" onClick={() => confirmarExclusao(null)}>Só esta</Button>
+          <Button color="error" onClick={() => confirmarExclusao('seguintes')}>Esta e as seguintes</Button>
+          <Button color="error" variant="contained" onClick={() => confirmarExclusao('todas')}>Todas</Button>
+        </DialogActions>
+      </Dialog>
       <Snackbar open={Boolean(msg)} autoHideDuration={3000} onClose={() => setMsg('')} message={msg} />
     </Stack>
   );

@@ -12,6 +12,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import SavingsIcon from '@mui/icons-material/Savings';
 import TuneIcon from '@mui/icons-material/Tune';
+import CreditCardIcon from '@mui/icons-material/CreditCard';
 import LogoutIcon from '@mui/icons-material/Logout';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
@@ -30,6 +31,7 @@ const LARGURA = 220;
 const ITENS = [
   { caminho: '/', rotulo: 'Resumo', icone: <DashboardIcon /> },
   { caminho: '/lancamentos', rotulo: 'Lançamentos', icone: <ReceiptLongIcon /> },
+  ...(MODO_LOCAL ? [{ caminho: '/cartoes', rotulo: 'Cartões', icone: <CreditCardIcon /> }] : []),
   { caminho: '/orcamento', rotulo: 'Orçamento', icone: <SavingsIcon /> },
   { caminho: '/cadastros', rotulo: 'Cadastros', icone: <TuneIcon /> },
 ];

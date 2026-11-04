@@ -5,7 +5,8 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { api } from '../api.js';
-import { dataPadrao, parseValor } from '../utils/format.js';
+import { brl, dataBR, dataPadrao, parseValor } from '../utils/format.js';
+import { faturaDaCompra } from '../local/engine.js';
 import { TEM_FIXAS } from '../modo.js';
 
 /** Formulário de registro: um único passo, com os mesmos campos da aba "Lançamentos" da planilha. */
@@ -32,8 +33,12 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
             data: item.data,
             pago: item.status === 'PagoRecebido',
             fixa: item.fixa === true,
+            parcelas: 1, valorDaParcela: false,
           }
-        : { tipo: 'Despesa', valor: '', descricao: '', categoriaId: '', contaId: contas[0]?.id ?? '', data: dataPadrao(mes), pago: true, fixa: false }
+        : {
+            tipo: 'Despesa', valor: '', descricao: '', categoriaId: '', contaId: contas[0]?.id ?? '', data: dataPadrao(mes),
+            pago: !contas[0]?.cartao, fixa: false, parcelas: 1, valorDaParcela: false,
+          }
     );
   }, [open, item]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -41,6 +46,21 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
   const set = (campo) => (e) => setF((p) => ({ ...p, [campo]: e.target.value }));
   const categoriasDoTipo = categorias.filter((c) => c.tipo === f.tipo);
   const verbo = f.tipo === 'Receita' ? 'recebido' : 'pago';
+  const contaSel = contas.find((c) => c.id === Number(f.contaId));
+  const cartao = TEM_FIXAS ? contaSel?.cartao : null;
+  const fatura = cartao && /^\d{4}-\d{2}-\d{2}$/.test(f.data) ? faturaDaCompra(cartao, f.data) : null;
+  const podeParcelar = TEM_FIXAS && !editando && f.tipo === 'Despesa';
+  const parcelado = podeParcelar && f.parcelas > 1;
+  const parcelaDoItem = editando ? item.parcela : null;
+  const valorDigitado = parseValor(f.valor);
+  const totalParcelado = parcelado && !Number.isNaN(valorDigitado)
+    ? Math.round(valorDigitado * (f.valorDaParcela ? f.parcelas : 1) * 100) / 100 : null;
+
+  const trocarConta = (e) => {
+    const nova = contas.find((c) => c.id === Number(e.target.value));
+    // Compra no cartão fica pendente até pagar a fatura.
+    setF((p) => ({ ...p, contaId: e.target.value, pago: !editando && TEM_FIXAS && nova?.cartao ? false : p.pago }));
+  };
 
   const salvar = async (continuar) => {
     setErro('');
@@ -61,7 +81,11 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
       valor,
       status: f.pago ? 'PagoRecebido' : 'Pendente',
     };
-    if (TEM_FIXAS) payload.fixa = f.fixa === true;
+    if (TEM_FIXAS) payload.fixa = !parcelado && !parcelaDoItem && f.fixa === true;
+    if (parcelado) {
+      payload.parcelas = f.parcelas;
+      payload.valor = totalParcelado; // a API recebe o TOTAL e divide
+    }
 
     setSalvando(true);
     try {
@@ -69,8 +93,8 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
       else await api.post('/api/lancamentos', payload);
       onSaved();
       if (continuar && !editando) {
-        setF((p) => ({ ...p, valor: '', descricao: '' }));
-        setAviso('Lançamento salvo! Pode registrar o próximo.');
+        setF((p) => ({ ...p, valor: '', descricao: '', parcelas: 1 }));
+        setAviso(parcelado ? `Compra salva em ${f.parcelas} parcelas. Pode registrar a próxima.` : 'Lançamento salvo! Pode registrar o próximo.');
       } else {
         onClose();
       }
@@ -112,7 +136,7 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
             <TextField select fullWidth label="Categoria" value={f.categoriaId} onChange={set('categoriaId')}>
               {categoriasDoTipo.map((c) => <MenuItem key={c.id} value={c.id}>{c.nome}</MenuItem>)}
             </TextField>
-            <TextField select fullWidth label="Conta" value={f.contaId} onChange={set('contaId')}>
+            <TextField select fullWidth label="Conta" value={f.contaId} onChange={trocarConta}>
               {contas.map((c) => <MenuItem key={c.id} value={c.id}>{c.nome}</MenuItem>)}
             </TextField>
           </Stack>
@@ -129,7 +153,46 @@ export default function LancamentoDialog({ open, item, categorias, contas, mes, 
             />
           </Stack>
 
-          {TEM_FIXAS && (
+          {fatura && (
+            <Alert severity="info" icon={false}>
+              Cartão: entra na fatura que vence em {dataBR(fatura.vencimento)}
+              {parcelado ? ' (a 1ª parcela; as outras nas faturas seguintes)' : ''}. Fica pendente até você pagar a fatura em “Cartões”.
+            </Alert>
+          )}
+
+          {podeParcelar && (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+              <TextField
+                select label="Pagamento" value={f.parcelas} sx={{ minWidth: 160 }}
+                onChange={(e) => setF((p) => ({ ...p, parcelas: Number(e.target.value) }))}
+              >
+                <MenuItem value={1}>À vista</MenuItem>
+                {Array.from({ length: 47 }, (_, i) => i + 2).map((n) => <MenuItem key={n} value={n}>{n}x</MenuItem>)}
+              </TextField>
+              {parcelado && (
+                <ToggleButtonGroup
+                  exclusive size="small" value={f.valorDaParcela ? 'parcela' : 'total'}
+                  onChange={(_, v) => v && setF((p) => ({ ...p, valorDaParcela: v === 'parcela' }))}
+                >
+                  <ToggleButton value="total">Valor é o total</ToggleButton>
+                  <ToggleButton value="parcela">Valor de cada parcela</ToggleButton>
+                </ToggleButtonGroup>
+              )}
+            </Stack>
+          )}
+          {parcelado && totalParcelado > 0 && (
+            <Alert severity="info" icon={false}>
+              {f.parcelas}x de {brl(totalParcelado / f.parcelas)} · total {brl(totalParcelado)}. Uma parcela por mês, no mesmo dia;
+              só a primeira segue o “{f.pago ? `Já ${verbo}` : 'Pendente'}”, as demais ficam pendentes.
+            </Alert>
+          )}
+          {parcelaDoItem && (
+            <Alert severity="info" icon={false}>
+              Parcela {parcelaDoItem.numero} de {parcelaDoItem.total}. A alteração vale só para esta parcela.
+            </Alert>
+          )}
+
+          {TEM_FIXAS && !parcelado && !parcelaDoItem && (
             <FormControlLabel
               control={<Switch checked={f.fixa} onChange={(e) => setF((p) => ({ ...p, fixa: e.target.checked }))} />}
               label={f.tipo === 'Receita' ? 'Receita fixa (repete todo mês)' : 'Despesa fixa (repete todo mês)'}
