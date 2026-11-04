@@ -111,7 +111,9 @@ export default function Orcamento() {
                   </Box>
                   <Box sx={{ textAlign: 'right' }}>
                     <Typography variant="caption" color="text.secondary">Disponível</Typography>
-                    <Typography fontWeight={500} color={disponivel < 0 ? 'error.main' : undefined}>{brl(disponivel)}</Typography>
+                    <Typography fontWeight={500} color={lim > 0 && disponivel < 0 ? 'error.main' : undefined}>
+                      {lim > 0 ? brl(disponivel) : '—'}
+                    </Typography>
                   </Box>
                 </Stack>
                 <Box sx={{ mt: 1 }}>{barra(i)}</Box>
@@ -142,8 +144,8 @@ export default function Orcamento() {
                       <TableCell>{i.categoria}</TableCell>
                       <TableCell>{campoLimite(i, false)}</TableCell>
                       <TableCell align="right">{brl(i.realizado)}</TableCell>
-                      <TableCell align="right" sx={{ color: lim - i.realizado < 0 ? 'error.main' : undefined, fontWeight: 500 }}>
-                        {brl(lim - i.realizado)}
+                      <TableCell align="right" sx={{ color: lim > 0 && lim - i.realizado < 0 ? 'error.main' : undefined, fontWeight: 500 }}>
+                        {lim > 0 ? brl(lim - i.realizado) : '—'}
                       </TableCell>
                       <TableCell>{barra(i)}</TableCell>
                     </TableRow>

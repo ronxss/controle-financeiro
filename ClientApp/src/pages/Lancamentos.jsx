@@ -94,7 +94,7 @@ export default function Lancamentos() {
   const despesas = itens.filter((i) => i.tipo === 'Despesa').reduce((s, i) => s + i.valor, 0);
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={{ pb: { xs: 8, md: 0 } }}>
       <Typography variant="h5" fontWeight={700}>Lançamentos</Typography>
 
       {erro && <Alert severity="error" onClose={() => setErro('')}>{erro}</Alert>}
