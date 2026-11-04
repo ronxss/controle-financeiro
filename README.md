@@ -140,16 +140,17 @@ Na primeira vez, **crie uma conta** (nome de usuário + senha). Podem existir v�
 - Os dados de cada conta ficam **criptografados** (AES-256-GCM) com uma chave derivada da senha (PBKDF2-SHA256, 600 mil iterações). A senha nunca é gravada.
 - **Não existe recuperação de senha**: sem ela, os dados não podem ser lidos por ninguém. Em "Esqueci minha senha" dá para apagar a conta e recomeçar importando um backup.
 - Use **Exportar backup** (menu do usuário) de vez em quando. O arquivo de backup **não é criptografado**: guarde-o em lugar seguro.
+  - No APK, o backup é gravado em *Documentos/Controle Financeiro* e a folha de compartilhamento do Android abre para enviar ao Drive, e-mail etc. (em Android 9 ou anterior, só o compartilhamento). No navegador do celular abre o compartilhamento; no computador, o arquivo vai para Downloads.
 - Quem usava uma versão anterior sem senha não perde nada: a primeira conta criada adota esses dados.
 - Limite do modelo: a criptografia protege o aparelho desligado/perdido e quem abrir o banco do navegador; não protege contra um aparelho já infectado ou contra quem observe você digitando a senha.
 
-### Despesas fixas e painel de métricas
+### Receitas e despesas fixas e painel de métricas
 
 No app local (PWA/APK):
 
-- **Despesa fixa**: no formulário de despesa, ative “Despesa fixa (repete todo mês)”; em *Lançamentos* o alfinete marca/desmarca, e o filtro “Só fixas” mostra apenas elas. Receitas não podem ser fixas.
-- **Copiar fixas do mês anterior**: recria as fixas do mês anterior no mês exibido, como *Pendente* e com o dia ajustado ao tamanho do mês (31 → 28). Não duplica o que já foi copiado.
-- **Resumo**: além dos totais, mostra orçamento total e por categoria (atenção a partir de 80% do limite, estourado acima de 100%), fixas × variáveis, evolução de 6 meses, ritmo/projeção do mês, comparação com o mês anterior e as 5 maiores despesas. Despesas pagas contam como realizado; as pendentes aparecem à parte.
+- **Receita ou despesa fixa**: no formulário, ative “Receita fixa” / “Despesa fixa (repete todo mês)”; em *Lançamentos* o alfinete marca/desmarca, e o filtro “Só fixas” mostra apenas elas.
+- **Copiar fixas do mês anterior**: recria as receitas e despesas fixas do mês anterior no mês exibido, como *Pendente* e com o dia ajustado ao tamanho do mês (31 → 28). Não duplica o que já foi copiado.
+- **Resumo**: além dos totais, mostra orçamento total e por categoria (atenção a partir de 80% do limite, estourado acima de 100%), receitas fixas × despesas fixas (quanto sobra e quanto das receitas fixas fica comprometido), despesas fixas × variáveis, evolução de 6 meses, ritmo/projeção do mês, comparação com o mês anterior e as 5 maiores despesas. Despesas pagas contam como realizado; as pendentes aparecem à parte.
 - Backups antigos continuam válidos (lançamentos sem o campo valem como não fixos). Isso existe só no modo local; o servidor em C# não mudou.
 
 ### Desenvolvimento
